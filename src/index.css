@@ -1,0 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-surface-900 text-surface-50 font-sans; margin: 0; min-height: 100vh; }
+  h1, h2, h3, h4, h5, h6 { @apply text-white font-semibold; }
+  p, span, li { @apply text-surface-100; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-surface-500 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-surface-400; }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-800 rounded-xl border border-surface-600/50 p-6;
+  }
+  .card-hover {
+    @apply bg-surface-800 rounded-xl border border-surface-600/50 p-6 cursor-pointer
+           transition-all duration-200 hover:border-primary-500/60 hover:bg-surface-700/80
+           hover:shadow-lg hover:shadow-primary-900/20;
+  }
+  .stat-card {
+    @apply bg-surface-800 rounded-xl border border-surface-600/50 p-6 flex flex-col gap-1;
+  }
+  .stat-label {
+    @apply text-xs font-semibold text-surface-200 uppercase tracking-widest;
+  }
+  .stat-value {
+    @apply text-2xl font-bold text-white;
+  }
+  .stat-sub {
+    @apply text-xs text-surface-300 font-medium;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-500
+           text-white text-sm font-semibold transition-all duration-150 active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed border-0 cursor-pointer no-underline
+           shadow-md shadow-primary-900/40;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-surface-700 hover:bg-surface-600
+           text-surface-100 text-sm font-medium border border-surface-500/70
+           transition-all duration-150 active:scale-95 cursor-pointer no-underline;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-900/50 hover:bg-red-800/70
+           text-red-200 text-sm font-medium border border-red-700/50 transition-all duration-150
+           active:scale-95 cursor-pointer;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+  .badge-ativo    { @apply badge bg-emerald-900/70 text-emerald-200 border border-emerald-500/60; }
+  .badge-avencer  { @apply badge bg-amber-900/70   text-amber-200   border border-amber-500/60;   }
+  .badge-vencido  { @apply badge bg-red-900/70     text-red-200     border border-red-500/60;     }
+  .badge-disponivel { @apply badge bg-sky-900/70   text-sky-200     border border-sky-500/60;     }
+  .badge-critico  { @apply badge bg-orange-900/70  text-orange-200  border border-orange-500/60;  }
+  .badge-esgotado { @apply badge bg-red-900/70     text-red-200     border border-red-500/60;     }
+  .input {
+    @apply w-full px-3 py-2 rounded-lg bg-surface-700 border border-surface-500/70 text-white
+           placeholder:text-surface-300 focus:outline-none focus:ring-2 focus:ring-primary-500/60
+           focus:border-primary-400 text-sm transition-all duration-150;
+  }
+  .table-base { @apply w-full text-sm; }
+  .table-base thead th {
+    @apply px-4 py-3 text-left text-xs font-semibold text-surface-200 uppercase tracking-widest
+           border-b border-surface-600/60 bg-surface-800/50;
+  }
+  .table-base tbody td {
+    @apply px-4 py-3 border-b border-surface-700/60 text-surface-100;
+  }
+  .table-base tbody tr:hover td { @apply bg-surface-700/50; }
+  .table-base tbody tr:last-child td { @apply border-b-0; }
+  .glass {
+    background: rgba(19, 25, 41, 0.75);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(74, 90, 130, 0.30);
+  }
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* Texto muted com contraste melhorado */
+  .text-muted { @apply text-surface-300; }
+  .text-secondary { @apply text-surface-200; }
+  /* Divisor sutil */
+  .divider { @apply border-t border-surface-600/50; }
+}

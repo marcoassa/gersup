@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+
+# Variáveis de ambiente com segredos (NUNCA commitar)
+*.local
+.env
+.env.*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Arquivos de dados locais / testes
+test_api.cjs
+test_pncp_items.json
+contratacao.json
+pncp_itens.json
+Planilhas_fonte/
+Referencias/
+
+# Workspace
+*.code-workspace

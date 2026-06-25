@@ -1,0 +1,41 @@
+name: Deploy GERSUP para GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # permite rodar manualmente pelo painel do GitHub
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Build da aplicação
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - name: Deploy para GitHub Pages (branch gh-pages)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          # Necessário para que o React Router funcione corretamente
+          # em acessos diretos a sub-rotas (ex: /gersup/pregoes)
+          force_orphan: true

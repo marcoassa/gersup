@@ -21,7 +21,8 @@
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
-// Substituído por AllOrigins proxy para a API de ARPs que ainda não tem suporte a CORS no PNCP
+// Utilizamos o proxy do Vite para contornar problemas de CORS localmente
+const BASE = '/api-compras'
 const TAMANHO_PAGINA = 500
 
 // ─── Tipos da API ─────────────────────────────────────────────────────────────
@@ -320,7 +321,7 @@ async function buscarArpsPorUasgEAno(
 
   try {
     return await fetchAllPages<ArpDTO>((pagina) =>
-      `https://corsproxy.io/?` + encodeURIComponent(`https://dadosabertos.compras.gov.br/modulo-arp/1_consultarARP?codigoUnidadeGerenciadora=${uasgEnc}&dataVigenciaInicialMin=${min}&dataVigenciaInicialMax=${max}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`)
+      `${BASE}/modulo-arp/1_consultarARP?codigoUnidadeGerenciadora=${uasgEnc}&dataVigenciaInicialMin=${min}&dataVigenciaInicialMax=${max}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`
     )
   } catch (err) {
     // Tenta também com o ano seguinte (ata pode viger a partir do ano seguinte)
@@ -328,7 +329,7 @@ async function buscarArpsPorUasgEAno(
     const min2 = `${ano + 1}-01-01`
     const max2 = `${ano + 1}-12-31`
     return fetchAllPages<ArpDTO>((pagina) =>
-      `https://corsproxy.io/?` + encodeURIComponent(`https://dadosabertos.compras.gov.br/modulo-arp/1_consultarARP?codigoUnidadeGerenciadora=${uasgEnc}&dataVigenciaInicialMin=${min2}&dataVigenciaInicialMax=${max2}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`)
+      `${BASE}/modulo-arp/1_consultarARP?codigoUnidadeGerenciadora=${uasgEnc}&dataVigenciaInicialMin=${min2}&dataVigenciaInicialMax=${max2}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`
     )
   }
 }
@@ -405,7 +406,7 @@ export async function buscarItensArp(
     const ataEnc = encodeURIComponent(toStr(arp.numeroControlePncpAta))
     try {
       const itens = await fetchAllPages<ItemArpDTO>((pagina) =>
-        `https://corsproxy.io/?` + encodeURIComponent(`https://dadosabertos.compras.gov.br/modulo-arp/2.1_consultarARPItem_Id?numeroControlePncpAta=${ataEnc}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`)
+        `${BASE}/modulo-arp/2.1_consultarARPItem_Id?numeroControlePncpAta=${ataEnc}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`
       )
       if (itens.length > 0) return itens
     } catch (err) {
@@ -421,7 +422,7 @@ export async function buscarItensArp(
     const ataEnc = encodeURIComponent(numAta)
     try {
       const itens = await fetchAllPages<ItemArpDTO>((pagina) =>
-        `https://corsproxy.io/?` + encodeURIComponent(`https://dadosabertos.compras.gov.br/modulo-arp/2_consultarARPItem?numeroAtaRegistroPreco=${ataEnc}&codigoUnidadeGerenciadora=${uasgEnc}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`)
+        `${BASE}/modulo-arp/2_consultarARPItem?numeroAtaRegistroPreco=${ataEnc}&codigoUnidadeGerenciadora=${uasgEnc}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`
       )
       if (itens.length > 0) return itens
     } catch (err) {
@@ -454,7 +455,7 @@ export async function buscarEmpenhosSaldo(
     const ataEnc = encodeURIComponent(numAta)
     try {
       const result = await fetchAllPages<EmpenhoSaldoDTO>((pagina) =>
-        `https://corsproxy.io/?` + encodeURIComponent(`https://dadosabertos.compras.gov.br/modulo-arp/4_consultarEmpenhosSaldoItem?numeroAta=${ataEnc}&unidadeGerenciadora=${uasgEnc}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`)
+        `${BASE}/modulo-arp/4_consultarEmpenhosSaldoItem?numeroAta=${ataEnc}&unidadeGerenciadora=${uasgEnc}&pagina=${pagina}&tamanhoPagina=${TAMANHO_PAGINA}`
       )
       if (result.length > 0) { todos = result; break }
     } catch (err) {

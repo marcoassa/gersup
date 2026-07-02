@@ -330,10 +330,23 @@ export function extrairTituloItem(descricao: string | null | undefined): string 
     return header
   }
 
-  // 2. Fallback: não encontrou ", com " — usa o texto antes da primeira vírgula
+  // 2. Fallback: não encontrou ", com " — tenta incluir os 2 primeiros segmentos
+  //    para dar mais contexto quando todas as descrições têm o mesmo prefixo.
+  //    Ex: "ETIQUETA IDENTIFICAÇÃO, MATERIAL PAPEL ADESIVO, COR BRANCA..."
+  //    → "ETIQUETA IDENTIFICAÇÃO, MATERIAL PAPEL ADESIVO"
   const idxVirgula = d.indexOf(',')
   if (idxVirgula > 0) {
-    return d.slice(0, idxVirgula).trim()
+    const seg1 = d.slice(0, idxVirgula).trim()
+    const resto = d.slice(idxVirgula + 1).trim()
+    const idxVirgula2 = resto.indexOf(',')
+    if (idxVirgula2 > 0) {
+      const seg2 = resto.slice(0, idxVirgula2).trim()
+      const dois = `${seg1}, ${seg2}`
+      return dois.length > 90 ? dois.slice(0, 87) + '…' : dois
+    }
+    // Só tem um segmento — retorna ele + trunca o resto se for diferente
+    const completo = `${seg1}, ${resto}`
+    return completo.length > 90 ? completo.slice(0, 87) + '…' : completo
   }
 
   // 3. Sem vírgula alguma — trunca em 80 chars

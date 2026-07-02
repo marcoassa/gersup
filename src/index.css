@@ -94,4 +94,52 @@
   .text-secondary { @apply text-surface-200; }
   /* Divisor sutil */
   .divider { @apply border-t border-surface-600/50; }
+
+  /* ── Tooltip de descrição completa dos itens do pregão ─────────────────── */
+  .item-desc-tooltip {
+    @apply relative inline-block cursor-help;
+    /* underline pontilhado indicando que tem mais informação */
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+    text-decoration-color: theme('colors.surface.500');
+  }
+  /* O pseudo-elemento tooltip fica acima da linha para evitar ser cortado pelo overflow */
+  .item-desc-tooltip::before {
+    content: attr(data-desc);
+    position: fixed;
+    /* O posicionamento dinâmico é feito via JS se necessário, mas o hover via CSS usa offset */
+    left: auto;
+    top: auto;
+    z-index: 9999;
+    min-width: 260px;
+    max-width: 420px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 11px;
+    line-height: 1.6;
+    font-weight: 400;
+    color: #e2e8f0;
+    background: rgba(15, 20, 35, 0.98);
+    border: 1px solid rgba(99, 119, 175, 0.4);
+    box-shadow: 0 10px 35px rgba(0,0,0,0.65), 0 0 0 1px rgba(0,0,0,0.2);
+    white-space: normal;
+    word-break: break-word;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    /* Posição fixa relativa ao viewport — aparece abaixo do cursor */
+    margin-top: 24px;
+    margin-left: -8px;
+  }
+  .item-desc-tooltip:hover::before {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  /* Scrollbar customizada para a área interna */
+  .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { @apply bg-surface-600 rounded-full; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { @apply bg-surface-500; }
 }

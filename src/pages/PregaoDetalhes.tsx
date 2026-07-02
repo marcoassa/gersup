@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Edit2, Check, X, RefreshCw, Trash2, AlertTriangle, Loader2, Search, Box, Pencil, Printer } from 'lucide-react'
 import { useQuery } from '@/hooks/useQuery'
 import { getPregaoById, updatePregao, deletePregao, updateItemPregao, getProdutosPaginado } from '@/lib/api'
-import { enrichPregao, enrichItem, formatCurrency, formatDate, formatPercent, cn, getSiTitulo } from '@/lib/utils'
+import { enrichPregao, enrichItem, formatCurrency, formatDate, formatPercent, cn, getSiTitulo, extrairTituloItem } from '@/lib/utils'
 import { LoadingSpinner, ErrorCard } from '@/components/ui/States'
+import ItemDescTooltip from '@/components/ui/ItemDescTooltip'
 import type { Produto } from '@/types'
 
 const ITEM_STATUS_CLASS: Record<string, string> = {
@@ -40,11 +41,22 @@ export default function PregaoDetalhes() {
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
 
+  const [searchItens, setSearchItens] = useState('')
+
   const card = useMemo(() => pregao ? enrichPregao(pregao) : null, [pregao])
   const itensList = useMemo(() => {
     const list = (pregao?.itens ?? []).map(enrichItem)
     return list.sort((a, b) => a.numero_item - b.numero_item)
   }, [pregao])
+
+  const itensFiltrados = useMemo(() => {
+    if (!searchItens.trim()) return itensList
+    const q = searchItens.toLowerCase()
+    return itensList.filter(item =>
+      item.descricao.toLowerCase().includes(q) ||
+      String(item.numero_item).includes(q)
+    )
+  }, [itensList, searchItens])
 
   // Modal de Pesquisa de MASTER
   const [itemEditandoMaster, setItemEditandoMaster] = useState<typeof itensList[0] | null>(null)
@@ -306,9 +318,22 @@ export default function PregaoDetalhes() {
 
       {/* Tabela de itens */}
       <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-surface-600/40 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-surface-600/40 flex flex-wrap items-center gap-3">
           <h3 className="text-sm font-semibold">Itens do Pregão</h3>
-          <span className="text-xs text-surface-400">{itensList.length} item(s)</span>
+          <span className="text-xs text-surface-400">
+            {itensFiltrados.length !== itensList.length
+              ? `${itensFiltrados.length} de ${itensList.length} item(s)`
+              : `${itensList.length} item(s)`}
+          </span>
+          <div className="relative ml-auto">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-400" />
+            <input
+              className="input pl-8 py-1 text-xs w-56"
+              placeholder="Buscar na descrição completa..."
+              value={searchItens}
+              onChange={e => setSearchItens(e.target.value)}
+            />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="table-base">
@@ -321,10 +346,15 @@ export default function PregaoDetalhes() {
               </tr>
             </thead>
             <tbody>
-              {itensList.map(item => (
+              {itensFiltrados.map(item => (
                 <tr key={item.id}>
                   <td className="font-mono text-xs">{item.numero_item}</td>
-                  <td className="max-w-xs text-xs">{item.descricao}</td>
+                  <td className="max-w-xs text-xs">
+                    <ItemDescTooltip
+                      titulo={extrairTituloItem(item.descricao)}
+                      descricaoCompleta={item.descricao}
+                    />
+                  </td>
                   <td className="text-xs">{item.unidade}</td>
                   <td className="text-right text-xs">{Number(item.quantidade_licitada).toLocaleString('pt-BR')}</td>
                   <td className="text-right text-xs">{Number(item.quantidade_empenhada).toLocaleString('pt-BR')}</td>
@@ -405,7 +435,13 @@ export default function PregaoDetalhes() {
               <div>
                 <h3 className="text-base font-bold text-surface-50">Relacionar Produto MASTER</h3>
                 <p className="text-xs text-surface-400 mt-0.5 line-clamp-1">
-                  Item {itemEditandoMaster.numero_item}: <span className="text-surface-200 font-medium">{itemEditandoMaster.descricao}</span>
+                  Item {itemEditandoMaster.numero_item}:{' '}
+                  <span
+                    className="text-surface-200 font-medium"
+                    title={itemEditandoMaster.descricao}
+                  >
+                    {extrairTituloItem(itemEditandoMaster.descricao)}
+                  </span>
                 </p>
               </div>
               <button

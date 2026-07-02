@@ -285,3 +285,33 @@ export function getSiTitulo(si: string | null | undefined): string {
   const padSi = clean.length === 1 ? `0${clean}` : clean
   return MAPA_SI_TITULOS[padSi] ?? ''
 }
+
+/**
+ * Extrai o título curto de um item de pregão.
+ *
+ * A descrição completa vinda do PNCP/arquivo de referência tem o formato:
+ *   "TÍTULO EM CAIXA ALTA, com as seguintes características: ..."
+ *
+ * Esta função retorna apenas a parte em caixa alta antes da primeira vírgula
+ * ou antes de ", com". Se não encontrar esse padrão, retorna os primeiros
+ * 80 caracteres da descrição.
+ */
+export function extrairTituloItem(descricao: string | null | undefined): string {
+  if (!descricao) return '—'
+  const d = descricao.trim()
+
+  // Tenta localizar a primeira vírgula — tudo antes é o título em caixa alta
+  const idxVirgula = d.indexOf(',')
+  if (idxVirgula > 0) {
+    const candidato = d.slice(0, idxVirgula).trim()
+    // Aceita se ao menos 60% dos caracteres alfabéticos forem maiúsculos
+    const letras = candidato.replace(/[^a-zA-ZÀ-ú]/g, '')
+    const maiusculas = candidato.replace(/[^A-ZÁÉÍÓÚÀÃÕÂÊÎÔÛÇ]/g, '')
+    if (letras.length > 0 && maiusculas.length / letras.length >= 0.6) {
+      return candidato
+    }
+  }
+
+  // Fallback: retorna os primeiros 80 caracteres
+  return d.length > 80 ? d.slice(0, 80) + '…' : d
+}

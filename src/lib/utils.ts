@@ -312,22 +312,9 @@ export function extrairTituloItem(descricao: string | null | undefined): string 
   //    Ex: "ETIQUETA DE IDENTIFICAÇÃO DE MATERIAL CONDENADO (VERMELHO), com as seguintes..."
   const matchCom = /,\s*com\s+/i.exec(d)
   if (matchCom) {
-    // Tudo antes do ", com " é o cabeçalho (pode ser "CATEGORIA, NOME" ou só "NOME")
-    const header = d.slice(0, matchCom.index).trim()
-
-    // Se o header tem vírgula, pega o ÚLTIMO segmento (o nome específico)
-    // Ex: "TRINCHA, TRINCHA DE 1\"" → "TRINCHA DE 1\""
-    // Ex: "ETIQUETA IDENTIFICAÇÃO, ETIQUETA DE IDENTIFICAÇÃO DE MATERIAL CONDENADO (VERMELHO)"
-    //      → "ETIQUETA DE IDENTIFICAÇÃO DE MATERIAL CONDENADO (VERMELHO)"
-    const lastComma = header.lastIndexOf(',')
-    if (lastComma >= 0) {
-      const titulo = header.slice(lastComma + 1).trim()
-      // Só usa o último segmento se for mais informativo que o primeiro
-      if (titulo.length >= 3) return titulo
-    }
-
-    // Sem vírgula no header — o próprio header é o título
-    return header
+    // Retorna tudo o que vem antes do ", com " exatamente como está.
+    // Ex: "ETIQUETA DE IDENTIFICAÇÃO DE MATERIAL CONDENADO (VERMELHO)"
+    return d.slice(0, matchCom.index).trim()
   }
 
   // 2. Fallback: não encontrou ", com " — tenta incluir os 2 primeiros segmentos

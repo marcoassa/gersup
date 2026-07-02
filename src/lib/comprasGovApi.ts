@@ -22,7 +22,6 @@
  */
 
 // Substituído por AllOrigins proxy para a API de ARPs que ainda não tem suporte a CORS no PNCP
-const BASE = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://dadosabertos.compras.gov.br')
 const TAMANHO_PAGINA = 500
 
 // ─── Tipos da API ─────────────────────────────────────────────────────────────

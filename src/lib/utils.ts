@@ -289,29 +289,53 @@ export function getSiTitulo(si: string | null | undefined): string {
 /**
  * Extrai o título curto de um item de pregão.
  *
- * A descrição completa vinda do PNCP/arquivo de referência tem o formato:
- *   "TÍTULO EM CAIXA ALTA, com as seguintes características: ..."
+ * Suporta dois formatos principais vindos do PNCP:
  *
- * Esta função retorna apenas a parte em caixa alta antes da primeira vírgula
- * ou antes de ", com". Se não encontrar esse padrão, retorna os primeiros
- * 80 caracteres da descrição.
+ * Formato A — com categoria:
+ *   "CATEGORIA, NOME ESPECÍFICO DO ITEM, com as seguintes características: ..."
+ *   → retorna "NOME ESPECÍFICO DO ITEM" (último segmento antes de ", com")
+ *
+ * Formato B — direto:
+ *   "NOME COMPLETO DO ITEM, com as seguintes características: ..."
+ *   → retorna "NOME COMPLETO DO ITEM"
+ *
+ * Formato C — sem padrão "com as seguintes":
+ *   "NOME, atributo1, atributo2, ..."
+ *   → retorna o primeiro segmento (antes da primeira vírgula)
  */
 export function extrairTituloItem(descricao: string | null | undefined): string {
   if (!descricao) return '—'
   const d = descricao.trim()
 
-  // Tenta localizar a primeira vírgula — tudo antes é o título em caixa alta
-  const idxVirgula = d.indexOf(',')
-  if (idxVirgula > 0) {
-    const candidato = d.slice(0, idxVirgula).trim()
-    // Aceita se ao menos 60% dos caracteres alfabéticos forem maiúsculos
-    const letras = candidato.replace(/[^a-zA-ZÀ-ú]/g, '')
-    const maiusculas = candidato.replace(/[^A-ZÁÉÍÓÚÀÃÕÂÊÎÔÛÇ]/g, '')
-    if (letras.length > 0 && maiusculas.length / letras.length >= 0.6) {
-      return candidato
+  // 1. Procura pelo separador ", com " (padrão principal do PNCP)
+  //    Ex: "TRINCHA, TRINCHA DE 1\", com as seguintes características:..."
+  //    Ex: "ETIQUETA DE IDENTIFICAÇÃO DE MATERIAL CONDENADO (VERMELHO), com as seguintes..."
+  const matchCom = /,\s*com\s+/i.exec(d)
+  if (matchCom) {
+    // Tudo antes do ", com " é o cabeçalho (pode ser "CATEGORIA, NOME" ou só "NOME")
+    const header = d.slice(0, matchCom.index).trim()
+
+    // Se o header tem vírgula, pega o ÚLTIMO segmento (o nome específico)
+    // Ex: "TRINCHA, TRINCHA DE 1\"" → "TRINCHA DE 1\""
+    // Ex: "ETIQUETA IDENTIFICAÇÃO, ETIQUETA DE IDENTIFICAÇÃO DE MATERIAL CONDENADO (VERMELHO)"
+    //      → "ETIQUETA DE IDENTIFICAÇÃO DE MATERIAL CONDENADO (VERMELHO)"
+    const lastComma = header.lastIndexOf(',')
+    if (lastComma >= 0) {
+      const titulo = header.slice(lastComma + 1).trim()
+      // Só usa o último segmento se for mais informativo que o primeiro
+      if (titulo.length >= 3) return titulo
     }
+
+    // Sem vírgula no header — o próprio header é o título
+    return header
   }
 
-  // Fallback: retorna os primeiros 80 caracteres
+  // 2. Fallback: não encontrou ", com " — usa o texto antes da primeira vírgula
+  const idxVirgula = d.indexOf(',')
+  if (idxVirgula > 0) {
+    return d.slice(0, idxVirgula).trim()
+  }
+
+  // 3. Sem vírgula alguma — trunca em 80 chars
   return d.length > 80 ? d.slice(0, 80) + '…' : d
 }

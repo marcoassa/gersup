@@ -52,23 +52,31 @@ export async function getPregaoById(id: string): Promise<ApiResult<Pregao>> {
   }
 }
 
-export async function searchItensGlobais(query: string): Promise<ApiResult<any[]>> {
+export async function searchItensGlobais(query: string, incluirVencidos: boolean = false): Promise<ApiResult<any[]>> {
   if (!query || query.trim().length < 2) return { data: [], error: null }
   
-  const { data, error } = await supabase
+  let q = supabase
     .from('itens_pregao')
     .select(`
       id,
       numero_item,
       descricao,
       pregao_id,
-      pregoes (
+      pregoes!inner (
         id,
-        numero_pregao
+        numero_pregao,
+        data_vencimento
       )
     `)
     .ilike('descricao', `%${query}%`)
-    .limit(20)
+
+  // Se não quiser incluir vencidos, filtra onde data_vencimento >= hoje
+  if (!incluirVencidos) {
+    const hojeStr = new Date().toISOString().split('T')[0]
+    q = q.gte('pregoes.data_vencimento', hojeStr)
+  }
+
+  const { data, error } = await q.limit(20)
 
   return {
     data: data,

@@ -8,13 +8,13 @@ import { LoadingSpinner, ErrorCard } from '@/components/ui/States'
 import ModalImportarPncp from '@/components/pregoes/ModalImportarPncp'
 import ModalAtualizarTodos from '@/components/pregoes/ModalAtualizarTodos'
 
-const STATUS_LABEL: Record<string, string> = { ATIVO: 'Ativo', A_VENCER: 'A Vencer', VENCIDO: 'Vencido' }
+const STATUS_LABEL: Record<string, string> = { VIGENTES: 'Vigentes', ATIVO: 'Ativo', A_VENCER: 'A Vencer', VENCIDO: 'Vencido', TODOS: 'Todos' }
 const STATUS_CLASS: Record<string, string> = { ATIVO: 'badge-ativo', A_VENCER: 'badge-avencer', VENCIDO: 'badge-vencido' }
 
 export default function Pregoes() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
-  const [filtroStatus, setFiltroStatus] = useState<string>('TODOS')
+  const [filtroStatus, setFiltroStatus] = useState<string>('VIGENTES')
   const [modalAberto, setModalAberto] = useState(false)
   const [modalAtualizarTodosAberto, setModalAtualizarTodosAberto] = useState(false)
   
@@ -34,7 +34,8 @@ export default function Pregoes() {
     
     searchTimeout.current = setTimeout(async () => {
       setIsSearching(true)
-      const { data } = await searchItensGlobais(search)
+      const incluirVencidos = filtroStatus === 'VENCIDO' || filtroStatus === 'TODOS'
+      const { data } = await searchItensGlobais(search, incluirVencidos)
       setSearchResults(data || [])
       setShowDropdown(true)
       setIsSearching(false)
@@ -60,7 +61,9 @@ export default function Pregoes() {
   }, [cards])
 
   const filtered = useMemo(() => cards.filter(c => {
-    return filtroStatus === 'TODOS' || c.status === filtroStatus
+    if (filtroStatus === 'TODOS') return true
+    if (filtroStatus === 'VIGENTES') return c.status !== 'VENCIDO'
+    return c.status === filtroStatus
   }), [cards, filtroStatus])
 
   if (error) return <ErrorCard message={error} onRetry={refetch} />
@@ -118,14 +121,14 @@ export default function Pregoes() {
             )}
           </div>
           <div className="flex gap-2">
-            {['TODOS', 'ATIVO', 'A_VENCER', 'VENCIDO'].map(s => (
+            {['VIGENTES', 'ATIVO', 'A_VENCER', 'VENCIDO', 'TODOS'].map(s => (
               <button key={s} onClick={() => setFiltroStatus(s)}
                 className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
                   filtroStatus === s
                     ? 'bg-primary-600 border-primary-500 text-white'
                     : 'bg-surface-700 border-surface-600 text-surface-200 hover:text-white'
                 )}>
-                {s === 'TODOS' ? 'Todos' : STATUS_LABEL[s]}
+                {STATUS_LABEL[s]}
               </button>
             ))}
           </div>

@@ -52,6 +52,30 @@ export async function getPregaoById(id: string): Promise<ApiResult<Pregao>> {
   }
 }
 
+export async function searchItensGlobais(query: string): Promise<ApiResult<any[]>> {
+  if (!query || query.trim().length < 2) return { data: [], error: null }
+  
+  const { data, error } = await supabase
+    .from('itens_pregao')
+    .select(`
+      id,
+      numero_item,
+      descricao,
+      pregao_id,
+      pregoes (
+        id,
+        numero_pregao
+      )
+    `)
+    .ilike('descricao', `%${query}%`)
+    .limit(20)
+
+  return {
+    data: data,
+    error: error?.message ?? null,
+  }
+}
+
 export async function updatePregao(
   id: string,
   updates: Partial<Pick<Pregao, 'objeto' | 'data_vencimento' | 'observacoes'>>

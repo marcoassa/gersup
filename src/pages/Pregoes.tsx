@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, RefreshCw } from 'lucide-react'
+import { Search, Plus, RefreshCw, Box } from 'lucide-react'
 import { useQuery } from '@/hooks/useQuery'
-import { getPregoes } from '@/lib/api'
-import { enrichPregao, formatCurrency, formatDate, formatPercent, cn } from '@/lib/utils'
+import { getPregoes, searchItensGlobais } from '@/lib/api'
+import { enrichPregao, formatCurrency, formatDate, formatPercent, cn, extrairTituloItem } from '@/lib/utils'
 import { LoadingSpinner, ErrorCard } from '@/components/ui/States'
 import ModalImportarPncp from '@/components/pregoes/ModalImportarPncp'
 import ModalAtualizarTodos from '@/components/pregoes/ModalAtualizarTodos'
@@ -17,6 +17,39 @@ export default function Pregoes() {
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS')
   const [modalAberto, setModalAberto] = useState(false)
   const [modalAtualizarTodosAberto, setModalAtualizarTodosAberto] = useState(false)
+  
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    if (search.trim().length < 2) {
+      setSearchResults([])
+      setShowDropdown(false)
+      return
+    }
+
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    
+    searchTimeout.current = setTimeout(async () => {
+      setIsSearching(true)
+      const { data } = await searchItensGlobais(search)
+      setSearchResults(data || [])
+      setShowDropdown(true)
+      setIsSearching(false)
+    }, 400)
+
+    return () => {
+      if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    }
+  }, [search])
+
+  useEffect(() => {
+    const handleClick = () => setShowDropdown(false)
+    window.addEventListener('click', handleClick)
+    return () => window.removeEventListener('click', handleClick)
+  }, [])
 
   const { data, loading, error, refetch } = useQuery(getPregoes)
 
@@ -27,12 +60,8 @@ export default function Pregoes() {
   }, [cards])
 
   const filtered = useMemo(() => cards.filter(c => {
-    const matchSearch = !search ||
-      c.numero_pregao.toLowerCase().includes(search.toLowerCase()) ||
-      c.objeto.toLowerCase().includes(search.toLowerCase())
-    const matchStatus = filtroStatus === 'TODOS' || c.status === filtroStatus
-    return matchSearch && matchStatus
-  }), [cards, search, filtroStatus])
+    return filtroStatus === 'TODOS' || c.status === filtroStatus
+  }), [cards, filtroStatus])
 
   if (error) return <ErrorCard message={error} onRetry={refetch} />
 
@@ -40,9 +69,53 @@ export default function Pregoes() {
     <>
       <div className="space-y-4">
         <div className="flex flex-wrap gap-3 items-center">
-          <div className="relative flex-1 min-w-48">
+          <div className="relative flex-1 min-w-48" onClick={e => e.stopPropagation()}>
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
-            <input className="input pl-9" placeholder="Buscar pregão..." value={search} onChange={e => setSearch(e.target.value)} />
+            <input 
+              className="input pl-9" 
+              placeholder="Buscar produtos ou pregão..." 
+              value={search} 
+              onChange={e => {
+                setSearch(e.target.value)
+                setShowDropdown(true)
+              }} 
+              onFocus={() => {
+                if (searchResults.length > 0) setShowDropdown(true)
+              }}
+            />
+            {/* Dropdown de produtos */}
+            {showDropdown && search.trim().length >= 2 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-surface-800 border border-surface-600 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+                {isSearching ? (
+                  <div className="p-3 text-center text-xs text-surface-400">Buscando...</div>
+                ) : searchResults.length > 0 ? (
+                  <ul>
+                    {searchResults.map(item => {
+                       const titulo = extrairTituloItem(item.descricao)
+                       return (
+                        <li key={item.id} 
+                            className="p-3 hover:bg-surface-700 cursor-pointer border-b border-surface-700/50 last:border-0"
+                            onClick={() => navigate(`/pregoes/${item.pregao_id}?item=${item.numero_item}`)}>
+                          <div className="flex gap-2 items-start">
+                            <Box size={14} className="text-primary-400 mt-0.5 shrink-0" />
+                            <div>
+                              <div className="text-sm text-surface-100 font-medium">
+                                Item {item.numero_item} - {titulo}
+                              </div>
+                              <div className="text-xs text-surface-400 mt-1">
+                                Pregão: {item.pregoes?.numero_pregao}
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                       )
+                    })}
+                  </ul>
+                ) : (
+                  <div className="p-3 text-center text-xs text-surface-400">Nenhum produto encontrado.</div>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             {['TODOS', 'ATIVO', 'A_VENCER', 'VENCIDO'].map(s => (

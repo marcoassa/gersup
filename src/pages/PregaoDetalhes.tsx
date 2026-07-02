@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Edit2, Check, X, RefreshCw, Trash2, AlertTriangle, Loader2, Search, Box, Pencil, Printer } from 'lucide-react'
 import { useQuery } from '@/hooks/useQuery'
 import { getPregaoById, updatePregao, deletePregao, updateItemPregao, getProdutosPaginado } from '@/lib/api'
@@ -27,6 +27,7 @@ function useDebounce<T>(value: T, delay = 400): T {
 export default function PregaoDetalhes() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const { data: pregao, loading, error, refetch } = useQuery(
     () => getPregaoById(id!),
@@ -57,6 +58,26 @@ export default function PregaoDetalhes() {
       String(item.numero_item).includes(q)
     )
   }, [itensList, searchItens])
+
+  // Efeito para rolar a tela até o item pesquisado na busca global
+  useEffect(() => {
+    if (loading || itensList.length === 0) return
+
+    const params = new URLSearchParams(location.search)
+    const itemId = params.get('item')
+    
+    if (itemId) {
+      const el = document.getElementById(`item-${itemId}`)
+      if (el) {
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el.classList.add('highlight-pulse')
+          // Remove o parâmetro para não rodar novamente ao atualizar
+          window.history.replaceState({}, '', location.pathname)
+        }, 300)
+      }
+    }
+  }, [loading, itensList, location])
 
   // Modal de Pesquisa de MASTER
   const [itemEditandoMaster, setItemEditandoMaster] = useState<typeof itensList[0] | null>(null)
@@ -347,7 +368,7 @@ export default function PregaoDetalhes() {
             </thead>
             <tbody>
               {itensFiltrados.map(item => (
-                <tr key={item.id}>
+                <tr key={item.id} id={`item-${item.numero_item}`}>
                   <td className="font-mono text-xs">{item.numero_item}</td>
                   <td className="max-w-xs text-xs">
                     <ItemDescTooltip

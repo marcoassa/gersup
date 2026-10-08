@@ -45,18 +45,18 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   return (
     <aside className={cn(
       'fixed left-0 top-0 h-full z-30 flex flex-col transition-all duration-300',
-      'bg-surface-800 border-r border-surface-600/40',
+      'bg-surface-800 border-r border-surface-600/30',
       collapsed ? 'w-16' : 'w-60'
     )}>
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 py-5 border-b border-surface-600/40">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-600 to-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
+      <div className="flex items-center gap-3 px-4 py-5 border-b border-surface-600/30">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-500 to-primary-500 flex items-center justify-center shadow-lg shadow-accent-500/20 shrink-0">
           <Box size={18} className="text-white" />
         </div>
         {!collapsed && (
           <div className="overflow-hidden">
             <p className="text-sm font-bold text-white tracking-wider leading-tight">GERSUP</p>
-            <p className="text-[10px] text-amber-400/90 font-medium leading-tight">Gestão de Suprimento</p>
+            <p className="text-[10px] text-primary-400 font-medium leading-tight">Gestão de Suprimento</p>
           </div>
         )}
         <button
@@ -77,7 +77,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             className={({ isActive }) => cn(
               'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150',
               isActive
-                ? 'bg-primary-700/40 text-amber-300 font-semibold border-l-2 border-amber-400 shadow-sm shadow-black/20'
+                ? 'bg-primary-600/30 text-white font-semibold border-l-2 border-primary-400 shadow-sm shadow-black/20'
                 : 'text-surface-300 hover:text-white hover:bg-surface-700/60'
             )}
             title={collapsed ? label : undefined}
@@ -90,7 +90,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
 
       {/* Footer */}
       {!collapsed && (
-        <div className="px-4 py-3 border-t border-surface-600/40">
+        <div className="px-4 py-3 border-t border-surface-600/30">
           <p className="text-[10px] text-surface-400">Mercado Nacional • v1.0</p>
         </div>
       )}
@@ -121,13 +121,13 @@ function Header() {
     : 'GS'
 
   return (
-    <header className="h-14 flex items-center gap-4 px-6 bg-surface-800/80 border-b border-surface-600/40 backdrop-blur-sm sticky top-0 z-20">
+    <header className="h-14 flex items-center gap-4 px-6 bg-surface-800/80 border-b border-surface-600/30 backdrop-blur-sm sticky top-0 z-20">
       <h1 className="text-sm font-semibold text-white">{current?.label ?? 'GERSUP'}</h1>
       <div className="ml-auto flex items-center gap-3">
         {/* Avatar com e-mail */}
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-primary-700 border border-amber-400/60 flex items-center justify-center shadow-sm">
-            <span className="text-xs font-bold text-amber-300">{initials}</span>
+          <div className="w-7 h-7 rounded-full bg-primary-700 border border-primary-400/60 flex items-center justify-center shadow-sm">
+            <span className="text-xs font-bold text-primary-200">{initials}</span>
           </div>
           <span className="text-xs text-surface-200 hidden sm:block max-w-[160px] truncate font-medium">
             {user?.email ?? 'Gerente de Suprimento'}
@@ -163,10 +163,10 @@ function AppShell() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-900">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-500 to-primary-600 flex items-center justify-center">
             <Box size={20} className="text-white" />
           </div>
-          <div className="w-5 h-5 border-2 border-primary-500/40 border-t-primary-500 rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-primary-500/40 border-t-primary-400 rounded-full animate-spin" />
         </div>
       </div>
     )

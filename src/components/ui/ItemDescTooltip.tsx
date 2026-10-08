@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback } from 'react'
 
 interface ItemDescTooltipProps {
-  titulo: string
-  descricaoCompleta: string
+  titulo: React.ReactNode
+  descricaoCompleta: React.ReactNode
 }
 
 /**
@@ -32,14 +32,20 @@ export default function ItemDescTooltip({ titulo, descricaoCompleta }: ItemDescT
 
   // Calcula posição do tooltip: prefere abaixo do cursor; se muito perto do
   // fundo da tela, coloca acima.
+  const isBottomHalf = pos.y > window.innerHeight / 2;
+  
   const tooltipStyle: React.CSSProperties = {
     position: 'fixed',
     zIndex: 9999,
     pointerEvents: 'none',
-    left: Math.min(pos.x + 12, window.innerWidth - 440),
-    top: pos.y + 24,
-    maxWidth: 420,
-    minWidth: 260,
+    left: Math.min(pos.x + 12, window.innerWidth - 560),
+    ...(isBottomHalf 
+      ? { bottom: window.innerHeight - pos.y + 12 } 
+      : { top: pos.y + 24 }),
+    maxWidth: 560,
+    minWidth: 280,
+    maxHeight: '480px',
+    overflowY: 'auto',
     padding: '10px 14px',
     borderRadius: 10,
     fontSize: 11,
@@ -49,7 +55,7 @@ export default function ItemDescTooltip({ titulo, descricaoCompleta }: ItemDescT
     border: '1px solid rgba(99, 119, 175, 0.4)',
     boxShadow: '0 10px 35px rgba(0,0,0,0.65), 0 0 0 1px rgba(0,0,0,0.2)',
     wordBreak: 'break-word',
-    whiteSpace: 'normal',
+    whiteSpace: 'pre-line',
     opacity: visible ? 1 : 0,
     transform: visible ? 'translateY(0)' : 'translateY(6px)',
     transition: 'opacity 0.18s ease, transform 0.18s ease',
@@ -82,3 +88,42 @@ export default function ItemDescTooltip({ titulo, descricaoCompleta }: ItemDescT
     </>
   )
 }
+
+interface ResumoTRTooltipContentProps {
+  texto: string | null | undefined
+  tituloItem?: string
+  numeroItem?: number | string | null
+}
+
+/**
+ * Renderiza o conteúdo completo do Termo de Referência (TR) ao passar o mouse.
+ */
+export function ResumoTRTooltipContent({
+  texto,
+  tituloItem,
+  numeroItem,
+}: ResumoTRTooltipContentProps) {
+  if (!texto) return null
+  const limpo = texto.replace(/\r\n/g, '\n').trim()
+
+  return (
+    <div className="space-y-2 font-sans text-left min-w-[280px]">
+      <div className="text-[10px] font-bold tracking-wider text-primary-400 uppercase pb-1.5 border-b border-surface-700/60 flex items-center justify-between">
+        <span className="flex items-center gap-1.5">
+          <span>📄</span>
+          <span>{tituloItem || 'Termo de Referência Completo'}</span>
+        </span>
+        {numeroItem != null && (
+          <span className="text-[9px] text-amber-300 font-mono font-bold bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-500/30">
+            Item {numeroItem}
+          </span>
+        )}
+      </div>
+
+      <div className="text-surface-200 leading-relaxed text-xs whitespace-pre-wrap select-text">
+        {limpo}
+      </div>
+    </div>
+  )
+}
+

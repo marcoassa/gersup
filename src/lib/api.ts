@@ -3,7 +3,7 @@
  * Todas as queries ao banco ficam centralizadas aqui.
  */
 import { supabase } from '@/lib/supabase'
-import type { Pregao, ItemPregao, Produto, Estoque, Fornecimento } from '@/types'
+import type { Pregao, ItemPregao, Produto, Estoque, Fornecimento, PedidoCompra, ItemCarrinhoEnriquecido, StatusPedidoCompra, Fornecedor, FornecedorConsolidado } from '@/types'
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 
@@ -14,9 +14,222 @@ export interface ApiResult<T> {
 
 // ─── Fornecedores ─────────────────────────────────────────────────────────────
 
-export async function getFornecedores() {
+const IMPEDIDOS_STORAGE_KEY = 'gersup_fornecedores_impedidos'
+
+export interface FornecedorImpedidoInfo {
+  impedido: boolean
+  motivo: string | null
+  updated_at?: string
+}
+
+export function getImpedidosLocalStorage(): Record<string, FornecedorImpedidoInfo> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(IMPEDIDOS_STORAGE_KEY) : null
+    if (!raw) return {}
+    return JSON.parse(raw)
+  } catch {
+    return {}
+  }
+}
+
+export function setImpedidosLocalStorage(cleanCnpj: string, info: FornecedorImpedidoInfo) {
+  try {
+    if (typeof window === 'undefined') return
+    const current = getImpedidosLocalStorage()
+    if (info.impedido) {
+      current[cleanCnpj] = info
+    } else {
+      delete current[cleanCnpj]
+    }
+    localStorage.setItem(IMPEDIDOS_STORAGE_KEY, JSON.stringify(current))
+    window.dispatchEvent(new CustomEvent('gersup_fornecedores_impedidos_change', { detail: { cleanCnpj, info } }))
+  } catch (err) {
+    console.error('Erro ao salvar impedimento no localStorage:', err)
+  }
+}
+
+export function getFornecedoresImpedidosMapSync(): Map<string, { impedido: boolean; motivo: string | null }> {
+  const map = new Map<string, { impedido: boolean; motivo: string | null }>()
+  const local = getImpedidosLocalStorage()
+  for (const [cleanCnpj, item] of Object.entries(local)) {
+    if (item.impedido) {
+      map.set(cleanCnpj, { impedido: true, motivo: item.motivo })
+    }
+  }
+  return map
+}
+
+export async function getFornecedoresImpedidosMap(): Promise<Map<string, { impedido: boolean; motivo: string | null }>> {
+  const map = getFornecedoresImpedidosMapSync()
+  try {
+    const { data } = await supabase.from('fornecedores').select('cnpj, impedido_empenho, motivo_impedimento')
+    if (data && Array.isArray(data)) {
+      data.forEach((row: any) => {
+        if (row.cnpj) {
+          const clean = row.cnpj.replace(/\D/g, '')
+          if (row.impedido_empenho) {
+            map.set(clean, { impedido: true, motivo: row.motivo_impedimento || null })
+          } else if (!map.has(clean)) {
+            map.delete(clean)
+          }
+        }
+      })
+    }
+  } catch {
+    // Ignora erro caso a coluna não exista no Supabase
+  }
+  return map
+}
+
+export async function getFornecedores(): Promise<ApiResult<Fornecedor[]>> {
   const { data, error } = await supabase.from('fornecedores').select('*').order('razao_social')
-  return { data, error: error?.message ?? null }
+  return { data: (data as any) || [], error: error?.message ?? null }
+}
+
+export async function getFornecedoresConsolidados(): Promise<ApiResult<FornecedorConsolidado[]>> {
+  try {
+    let fornecedoresDb: any[] = []
+    try {
+      const { data } = await supabase.from('fornecedores').select('*')
+      if (data) fornecedoresDb = data
+    } catch {
+      fornecedoresDb = []
+    }
+
+    const { data: itens, error: itensErr } = await supabase
+      .from('itens_pregao')
+      .select('fornecedor_cnpj, fornecedor_nome, pregao_id, pregoes(numero_pregao)')
+
+    if (itensErr) {
+      console.warn('Erro ao buscar itens de pregão para fornecedores:', itensErr)
+    }
+
+    const localImpedidos = getImpedidosLocalStorage()
+    const consolidadoMap = new Map<string, FornecedorConsolidado>()
+
+    fornecedoresDb.forEach(f => {
+      if (!f.cnpj) return
+      const clean = f.cnpj.replace(/\D/g, '')
+      const local = localImpedidos[clean]
+      const impedido = local !== undefined ? local.impedido : !!f.impedido_empenho
+      const motivo = local !== undefined ? local.motivo : f.motivo_impedimento
+
+      consolidadoMap.set(clean, {
+        id: f.id,
+        cnpj: f.cnpj,
+        clean_cnpj: clean,
+        razao_social: f.razao_social || 'Razão Social não informada',
+        nome_fantasia: f.nome_fantasia,
+        contato: f.contato,
+        email: f.email,
+        impedido_empenho: impedido,
+        motivo_impedimento: motivo || null,
+        total_itens: 0,
+        total_pregoes: 0,
+        pregoes: [],
+      })
+    })
+
+    const pregoesSetPorCnpj = new Map<string, Set<string>>()
+
+    ;(itens || []).forEach((it: any) => {
+      if (!it.fornecedor_cnpj) return
+      const clean = it.fornecedor_cnpj.replace(/\D/g, '')
+      if (!clean) return
+
+      if (!pregoesSetPorCnpj.has(clean)) {
+        pregoesSetPorCnpj.set(clean, new Set())
+      }
+      if (it.pregoes?.numero_pregao) {
+        pregoesSetPorCnpj.get(clean)!.add(it.pregoes.numero_pregao)
+      }
+
+      if (!consolidadoMap.has(clean)) {
+        const local = localImpedidos[clean]
+        consolidadoMap.set(clean, {
+          cnpj: it.fornecedor_cnpj,
+          clean_cnpj: clean,
+          razao_social: it.fornecedor_nome || 'Empresa Vencedora em Pregão',
+          impedido_empenho: !!local?.impedido,
+          motivo_impedimento: local?.motivo || null,
+          total_itens: 1,
+          total_pregoes: 0,
+          pregoes: [],
+        })
+      } else {
+        const existing = consolidadoMap.get(clean)!
+        existing.total_itens += 1
+        if (!existing.razao_social || existing.razao_social === 'Razão Social não informada') {
+          if (it.fornecedor_nome) existing.razao_social = it.fornecedor_nome
+        }
+      }
+    })
+
+    consolidadoMap.forEach((item, clean) => {
+      const pSet = pregoesSetPorCnpj.get(clean)
+      if (pSet) {
+        item.pregoes = Array.from(pSet).sort()
+        item.total_pregoes = item.pregoes.length
+      }
+    })
+
+    const lista = Array.from(consolidadoMap.values()).sort((a, b) =>
+      a.razao_social.localeCompare(b.razao_social, 'pt-BR')
+    )
+
+    return { data: lista, error: null }
+  } catch (err: any) {
+    return { data: [], error: err?.message || 'Erro ao consolidar fornecedores' }
+  }
+}
+
+export async function atualizarImpedimentoFornecedor(
+  cnpj: string,
+  impedido: boolean,
+  motivo: string | null,
+  razaoSocial?: string
+): Promise<ApiResult<null>> {
+  const clean = cnpj.replace(/\D/g, '')
+  if (!clean) return { data: null, error: 'CNPJ inválido' }
+
+  // 1. Atualiza localStorage imediatamente
+  setImpedidosLocalStorage(clean, {
+    impedido,
+    motivo: impedido ? (motivo?.trim() || 'Empresa impedida de empenho') : null,
+    updated_at: new Date().toISOString(),
+  })
+
+  // 2. Tenta atualizar ou inserir no Supabase
+  try {
+    const { data: existente } = await supabase
+      .from('fornecedores')
+      .select('id')
+      .eq('cnpj', cnpj)
+      .maybeSingle()
+
+    if (existente?.id) {
+      await supabase
+        .from('fornecedores')
+        .update({
+          impedido_empenho: impedido,
+          motivo_impedimento: impedido ? motivo?.trim() : null,
+        } as any)
+        .eq('id', existente.id)
+    } else {
+      await supabase
+        .from('fornecedores')
+        .insert({
+          cnpj,
+          razao_social: razaoSocial || 'Fornecedor',
+          impedido_empenho: impedido,
+          motivo_impedimento: impedido ? motivo?.trim() : null,
+        } as any)
+    }
+  } catch (err) {
+    console.warn('Persistência no Supabase com fallback para localStorage ativo:', err)
+  }
+
+  return { data: null, error: null }
 }
 
 // ─── Pregões ──────────────────────────────────────────────────────────────────
@@ -46,14 +259,53 @@ export async function getPregaoById(id: string): Promise<ApiResult<Pregao>> {
     .eq('id', id)
     .single()
 
+  if (error || !data) {
+    return {
+      data: null,
+      error: error?.message ?? null,
+    }
+  }
+
+  const pregao = data as Pregao
+
+  // Buscar dados dos produtos MASTER vinculados
+  const cdCompMasters = Array.from(
+    new Set(
+      (pregao.itens || [])
+        .map(i => i.cd_comp_master)
+        .filter((cd): cd is string => !!cd)
+    )
+  )
+
+  if (cdCompMasters.length > 0) {
+    const { data: produtos } = await supabase
+      .from('produtos')
+      .select('cd_comp, pn, mpn, nomenclatura, cm')
+      .in('cd_comp', cdCompMasters)
+    
+    if (produtos && produtos.length > 0) {
+      const prodMap = new Map(produtos.map(p => [p.cd_comp, p]))
+      pregao.itens?.forEach(item => {
+        if (item.cd_comp_master && prodMap.has(item.cd_comp_master)) {
+          const prod = prodMap.get(item.cd_comp_master) as any
+          item.produto = prod
+          item.cm = prod?.cm ?? item.cm ?? null
+        }
+      })
+    }
+  }
+
   return {
-    data: data as Pregao | null,
-    error: error?.message ?? null,
+    data: pregao,
+    error: null,
   }
 }
 
 export async function searchItensGlobais(query: string, incluirVencidos: boolean = false): Promise<ApiResult<any[]>> {
   if (!query || query.trim().length < 2) return { data: [], error: null }
+
+  const clean = query.trim().replace(/[,()]/g, '')
+  if (!clean) return { data: [], error: null }
   
   let q = supabase
     .from('itens_pregao')
@@ -61,38 +313,66 @@ export async function searchItensGlobais(query: string, incluirVencidos: boolean
       id,
       numero_item,
       descricao,
+      descricao_tr,
+      cd_comp_master,
       pregao_id,
       pregoes!inner (
         id,
         numero_pregao,
+        objeto,
         data_vencimento
       )
     `)
-    .ilike('descricao', `%${query}%`)
+    .or(`descricao.ilike.%${clean}%,descricao_tr.ilike.%${clean}%,cd_comp_master.ilike.%${clean}%`)
 
-  // Se não quiser incluir vencidos, filtra onde data_vencimento >= hoje
-  if (!incluirVencidos) {
+  const { data, error } = await q.limit(50)
+
+  let itens = data || []
+  if (!incluirVencidos && itens.length > 0) {
     const hojeStr = new Date().toISOString().split('T')[0]
-    q = q.gte('pregoes.data_vencimento', hojeStr)
+    itens = itens.filter((i: any) => !i.pregoes?.data_vencimento || i.pregoes.data_vencimento >= hojeStr)
   }
 
-  const { data, error } = await q.limit(20)
-
   return {
-    data: data,
+    data: itens,
     error: error?.message ?? null,
   }
 }
 
 export async function updatePregao(
   id: string,
-  updates: Partial<Pick<Pregao, 'objeto' | 'data_vencimento' | 'observacoes'>>
+  updates: Partial<Pick<Pregao, 'objeto' | 'data_vencimento' | 'observacoes' | 'nup' | 'numero_pregao'>>
 ): Promise<ApiResult<null>> {
   const { error } = await supabase
     .from('pregoes')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
-  return { data: null, error: error?.message ?? null }
+
+  if (error) {
+    return { data: null, error: error.message }
+  }
+
+  // Se o número do pregão foi atualizado, sincroniza nos itens de pedido vinculados
+  if (updates.numero_pregao) {
+    try {
+      const { data: itensDoPregao } = await supabase
+        .from('itens_pregao')
+        .select('id')
+        .eq('pregao_id', id)
+
+      const itemIds = (itensDoPregao ?? []).map(i => i.id)
+      if (itemIds.length > 0) {
+        await supabase
+          .from('itens_pedido_compra')
+          .update({ numero_pregao: updates.numero_pregao })
+          .in('item_pregao_id', itemIds)
+      }
+    } catch (errSync) {
+      console.warn('[updatePregao] Aviso ao sincronizar numero_pregao em pedidos:', errSync)
+    }
+  }
+
+  return { data: null, error: null }
 }
 
 export async function deletePregao(id: string): Promise<ApiResult<null>> {
@@ -104,27 +384,46 @@ export async function deletePregao(id: string): Promise<ApiResult<null>> {
   return { data: null, error: error?.message ?? null }
 }
 
-export async function getPedidosPendentes(): Promise<ApiResult<Array<{ cd_comp_master: string; quantidade: number }>>> {
+export interface ItemPedidoPendente {
+  cd_comp_master: string | null
+  item_pregao_id?: string | null
+  quantidade: number
+  pedido_id: string
+  pedido_numero: number
+  status: StatusPedidoCompra
+  criado_em?: string
+}
+
+export async function getPedidosPendentes(): Promise<ApiResult<ItemPedidoPendente[]>> {
   try {
     // Busca itens de pedidos cujo status seja diferente de CANCELADO e que ainda não foram entregues
-    // Como o módulo de pedidos está em desenvolvimento, fazemos uma query defensiva:
     const { data, error } = await supabase
-      .from('itens_pedido_empenho')
+      .from('itens_pedido_compra')
       .select(`
         quantidade,
-        pedido:pedidos_empenho!inner(status),
-        item_pregao:itens_pregao!inner(cd_comp_master)
+        cd_comp_master,
+        item_pregao_id,
+        pedido:pedidos_compra!inner(id, numero, status, criado_em)
       `)
       .neq('pedido.status', 'CANCELADO')
+      .neq('pedido.status', 'ENTREGUE')
 
     if (error) throw new Error(error.message)
 
-    const list: Array<{ cd_comp_master: string; quantidade: number }> = []
+    const list: ItemPedidoPendente[] = []
     for (const row of (data as any[]) ?? []) {
-      const cd_comp_master = row.item_pregao?.cd_comp_master
-      const status = row.pedido?.status
-      if (cd_comp_master && status !== 'CANCELADO') {
-        list.push({ cd_comp_master, quantidade: Number(row.quantidade) || 0 })
+      const pedido = row.pedido
+      const status = pedido?.status
+      if (status !== 'CANCELADO' && status !== 'ENTREGUE') {
+        list.push({
+          cd_comp_master: row.cd_comp_master || null,
+          item_pregao_id: row.item_pregao_id || null,
+          quantidade: Number(row.quantidade) || 0,
+          pedido_id: pedido?.id || '',
+          pedido_numero: Number(pedido?.numero) || 0,
+          status: status,
+          criado_em: pedido?.criado_em,
+        })
       }
     }
     return { data: list, error: null }
@@ -310,11 +609,34 @@ export async function getEstoquePaginado(
   page: number,
   perPage = 50
 ): Promise<EstoquePaginadoResult> {
+  
+  let cdCompsValidos: string[] | null = null
+  if (search) {
+    const q = `%${search}%`
+    const { data: matchedProds } = await supabase
+      .from('produtos')
+      .select('cd_comp')
+      .or(`cd_comp.ilike.${q},nomenclatura.ilike.${q},pn.ilike.${q},cm.ilike.${q}`)
+      .limit(1500)
+    
+    if (matchedProds) {
+      cdCompsValidos = matchedProds.map(p => p.cd_comp)
+    }
+    
+    if (cdCompsValidos && cdCompsValidos.length === 0) {
+      return { rows: [], total: 0, error: null }
+    }
+  }
+
   // 1. Buscar página de estoque CAVEX
   let estoqueQuery = supabase
     .from('estoque')
     .select('cd_comp, estoque_lib, estoque_res, estoque_total, data_referencia', { count: 'exact' })
     .eq('ambiente', 'CAVEX')
+
+  if (cdCompsValidos) {
+    estoqueQuery = estoqueQuery.in('cd_comp', cdCompsValidos)
+  }
 
   const from = page * perPage
   const to = from + perPage - 1
@@ -326,39 +648,23 @@ export async function getEstoquePaginado(
   if (ee) return { rows: [], total: 0, error: ee.message }
   if (!estoqueRaw || estoqueRaw.length === 0) return { rows: [], total: count ?? 0, error: null }
 
-  // 2. Buscar os produtos correspondentes (cd_comp do estoque == cd_comp do MASTER)
+  // 2. Buscar os produtos correspondentes
   const cdComps = estoqueRaw.map(e => e.cd_comp)
   const { data: prods } = await supabase
     .from('produtos')
     .select('cd_comp, cd_comp_master, nomenclatura, pn, mpn, nd, si, fabricante, cm')
     .in('cd_comp', cdComps)
 
-  // Se há busca textual, filtramos nos produtos
-  let cdCompsValidos = new Set(cdComps)
-  if (search && prods) {
-    const q = search.toLowerCase()
-    cdCompsValidos = new Set(
-      prods.filter(p =>
-        p.cd_comp.toLowerCase().includes(q) ||
-        (p.nomenclatura ?? '').toLowerCase().includes(q) ||
-        (p.pn ?? '').toLowerCase().includes(q) ||
-        (p.cm ?? '').toLowerCase().includes(q)
-      ).map(p => p.cd_comp)
-    )
-  }
-
   const prodMap = new Map((prods ?? []).map(p => [p.cd_comp, p]))
 
-  const rows: EstoqueRow[] = estoqueRaw
-    .filter(e => !search || cdCompsValidos.has(e.cd_comp))
-    .map(e => ({
-      cd_comp: e.cd_comp,
-      estoque_lib: Number(e.estoque_lib),
-      estoque_res: Number(e.estoque_res),
-      estoque_total: Number(e.estoque_total),
-      data_referencia: e.data_referencia,
-      produto: prodMap.get(e.cd_comp) ?? null,
-    }))
+  const rows: EstoqueRow[] = estoqueRaw.map(e => ({
+    cd_comp: e.cd_comp,
+    estoque_lib: Number(e.estoque_lib),
+    estoque_res: Number(e.estoque_res),
+    estoque_total: Number(e.estoque_total),
+    data_referencia: e.data_referencia,
+    produto: prodMap.get(e.cd_comp) ?? null,
+  }))
 
   return { rows, total: count ?? 0, error: null }
 }
@@ -811,11 +1117,416 @@ export async function upsertNotaCredito(
   return { data: data as NotaCredito | null, error: error?.message ?? null }
 }
 
+export async function updateNotaCredito(
+  id: string,
+  updates: Partial<Omit<NotaCredito, 'id' | 'created_at' | 'updated_at'>>
+): Promise<ApiResult<NotaCredito>> {
+  const { data, error } = await supabase
+    .from('notas_credito')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data as NotaCredito | null, error: error?.message ?? null }
+}
+
 export async function deleteNotaCredito(id: string): Promise<ApiResult<null>> {
   const { error } = await supabase
     .from('notas_credito')
     .delete()
     .eq('id', id)
   return { data: null, error: error?.message ?? null }
+}
+
+// ─── Pedidos de Compra ───────────────────────────────────────────────────
+
+export async function getPedidosCompra(): Promise<ApiResult<PedidoCompra[]>> {
+  const { data, error } = await supabase
+    .from('pedidos_compra')
+    .select(`
+      *,
+      itens:itens_pedido_compra(
+        *,
+        item_pregao:itens_pregao(descricao, descricao_tr)
+      )
+    `)
+    .order('criado_em', { ascending: false })
+
+  // Mapeia descricao_pregao para cada item
+  const mapped = (data ?? []).map((p: any) => ({
+    ...p,
+    itens: (p.itens ?? []).map((i: any) => ({
+      ...i,
+      descricao_pregao: i.item_pregao?.descricao ?? null,
+      descricao_tr: i.item_pregao?.descricao_tr ?? null,
+    })),
+  }))
+  return { data: mapped as PedidoCompra[] | null, error: error?.message ?? null }
+}
+
+export async function getPedidoCompraById(id: string): Promise<ApiResult<PedidoCompra>> {
+  const { data, error } = await supabase
+    .from('pedidos_compra')
+    .select('*, itens:itens_pedido_compra(*, item_pregao:itens_pregao(descricao, descricao_tr))')
+    .eq('id', id)
+    .single()
+
+  let mappedData = null
+  if (data) {
+    mappedData = {
+      ...data,
+      itens: (data.itens ?? []).map((i: any) => ({
+        ...i,
+        descricao_pregao: i.item_pregao?.descricao ?? null,
+        descricao_tr: i.item_pregao?.descricao_tr ?? null,
+      }))
+    }
+  }
+
+  return { data: mappedData as PedidoCompra | null, error: error?.message ?? null }
+}
+
+export async function criarPedidoCompra(
+  itens: Array<{ cdCompMaster: string; item: ItemCarrinhoEnriquecido }>,
+  observacoes: string | null,
+  criadoPor: string | null
+): Promise<ApiResult<PedidoCompra>> {
+  // 1. Buscar fornecedor de cada item_pregao_id (já salvo em itens_pregao)
+  const idsPregão = itens.map(i => i.item.item_pregao_id).filter(Boolean) as string[]
+  const fornMap = new Map<string, { nome: string | null; cnpj: string | null }>()
+
+  if (idsPregão.length > 0) {
+    const { data: itensPregao } = await supabase
+      .from('itens_pregao')
+      .select('id, fornecedor_nome, fornecedor_cnpj')
+      .in('id', idsPregão)
+    ;(itensPregao ?? []).forEach(ip => {
+      fornMap.set(ip.id, { nome: ip.fornecedor_nome, cnpj: ip.fornecedor_cnpj })
+    })
+  }
+
+  // 2. Calcular valor total
+  const valorTotal = itens.reduce((acc, { item }) => acc + item.valor_unitario * item.qtd, 0)
+
+  // 3. Criar cabeçalho do pedido
+  const { data: pedido, error: errPedido } = await supabase
+    .from('pedidos_compra')
+    .insert({ observacoes, valor_total: valorTotal, criado_por: criadoPor, status: 'RASCUNHO' })
+    .select()
+    .single()
+
+  if (errPedido || !pedido) {
+    return { data: null, error: errPedido?.message ?? 'Erro ao criar pedido' }
+  }
+
+  // 4. Inserir itens
+  const itensPayload = itens.map(({ cdCompMaster, item }) => {
+    const forn = item.item_pregao_id ? fornMap.get(item.item_pregao_id) : undefined
+    return {
+      pedido_id: pedido.id,
+      item_pregao_id: item.item_pregao_id,
+      cd_comp_master: cdCompMaster,
+      nomenclatura: item.nomenclatura,
+      pn: item.pn,
+      mpn: item.mpn,
+      nd: item.nd,
+      si: item.si,
+      cm: item.cm,
+      numero_pregao: item.numero_pregao,
+      numero_item: item.numero_item,
+      valor_unitario: item.valor_unitario,
+      quantidade: item.qtd,
+      valor_total: +(item.valor_unitario * item.qtd).toFixed(2),
+      fornecedor_nome: forn?.nome ?? null,
+      fornecedor_cnpj: forn?.cnpj ?? null,
+    }
+  })
+
+  const { error: errItens } = await supabase.from('itens_pedido_compra').insert(itensPayload)
+  if (errItens) {
+    // Rollback manual do pedido
+    await supabase.from('pedidos_compra').delete().eq('id', pedido.id)
+    return { data: null, error: `Erro ao salvar itens: ${errItens.message}` }
+  }
+
+  return { data: pedido as PedidoCompra, error: null }
+}
+
+export async function atualizarStatusPedidoCompra(
+  id: string,
+  status: StatusPedidoCompra
+): Promise<ApiResult<null>> {
+  const { error } = await supabase
+    .from('pedidos_compra')
+    .update({ status, atualizado_em: new Date().toISOString() })
+    .eq('id', id)
+
+  if (!error) {
+    // Sincroniza empenhos nos itens dos pregões em segundo plano
+    recalcularSaldosPregaoDePedidos().catch(err =>
+      console.warn('[API] Erro ao sincronizar saldos de pedidos finalizados:', err)
+    )
+  }
+
+  return { data: null, error: error?.message ?? null }
+}
+
+export async function atualizarObservacoesPedidoCompra(
+  id: string,
+  observacoes: string | null
+): Promise<ApiResult<null>> {
+  const { error } = await supabase
+    .from('pedidos_compra')
+    .update({ observacoes, atualizado_em: new Date().toISOString() })
+    .eq('id', id)
+
+  return { data: null, error: error?.message ?? null }
+}
+
+export async function deletePedidoCompra(id: string): Promise<ApiResult<null>> {
+  // itens_pedido_compra têm ON DELETE CASCADE, serão removidos automaticamente
+  const { error } = await supabase
+    .from('pedidos_compra')
+    .delete()
+    .eq('id', id)
+
+  if (!error) {
+    recalcularSaldosPregaoDePedidos().catch(err =>
+      console.warn('[API] Erro ao sincronizar saldos após deletar pedido:', err)
+    )
+  }
+
+  return { data: null, error: error?.message ?? null }
+}
+
+export async function deleteItemPedidoCompra(
+  id: string,
+  pedidoId?: string,
+  novoTotal?: number
+): Promise<ApiResult<null>> {
+  let targetPedidoId = pedidoId
+  if (!targetPedidoId) {
+    const { data: item } = await supabase
+      .from('itens_pedido_compra')
+      .select('pedido_id')
+      .eq('id', id)
+      .maybeSingle()
+    targetPedidoId = item?.pedido_id
+  }
+
+  const { error } = await supabase
+    .from('itens_pedido_compra')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    return { data: null, error: error.message }
+  }
+
+  if (targetPedidoId) {
+    let total = novoTotal
+    if (total === undefined) {
+      const { data: restantes } = await supabase
+        .from('itens_pedido_compra')
+        .select('valor_total')
+        .eq('pedido_id', targetPedidoId)
+      total = (restantes ?? []).reduce((acc: number, r: any) => acc + Number(r.valor_total || 0), 0)
+    }
+
+    // Ao excluir um item, o pedido é marcado como em aberto ('RASCUNHO') e tem o valor recalculado
+    await supabase
+      .from('pedidos_compra')
+      .update({
+        status: 'RASCUNHO',
+        valor_total: total,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq('id', targetPedidoId)
+  }
+
+  recalcularSaldosPregaoDePedidos().catch(err =>
+    console.warn('[API] Erro ao sincronizar saldos após deletar item de pedido:', err)
+  )
+
+  return { data: null, error: null }
+}
+
+/**
+ * Atualiza manualmente a quantidade empenhada de um item de pregão,
+ * recalculando o saldo_empenho do item e o valor_empenhado total do pregão.
+ */
+export async function atualizarEmpenhoItemPregao(
+  itemId: string,
+  novaQtdEmpenhada: number
+): Promise<ApiResult<{ quantidade_empenhada: number; saldo_empenho: number; valorEmpenhadoPregao: number }>> {
+  try {
+    const { data: item, error: errItem } = await supabase
+      .from('itens_pregao')
+      .select('id, pregao_id, quantidade_licitada, valor_unitario')
+      .eq('id', itemId)
+      .single()
+
+    if (errItem || !item) {
+      return { data: null, error: errItem?.message ?? 'Item do pregão não encontrado' }
+    }
+
+    const qtdLic = Number(item.quantidade_licitada) || 0
+    const qtdEmp = Math.max(0, Number(novaQtdEmpenhada) || 0)
+    const saldo = Math.max(0, qtdLic - qtdEmp)
+    const agora = new Date().toISOString()
+
+    const { error: errUpd } = await supabase
+      .from('itens_pregao')
+      .update({
+        quantidade_empenhada: qtdEmp,
+        saldo_empenho: saldo,
+        saldo_restante: saldo,
+        updated_at: agora,
+      })
+      .eq('id', itemId)
+
+    if (errUpd) {
+      return { data: null, error: errUpd.message }
+    }
+
+    // Recalcula o valor_empenhado total do pregão
+    const { data: todosItens } = await supabase
+      .from('itens_pregao')
+      .select('quantidade_empenhada, valor_unitario')
+      .eq('pregao_id', item.pregao_id)
+
+    const totalEmpenhadoPregao = (todosItens ?? []).reduce((acc, it) => {
+      return acc + (Number(it.quantidade_empenhada || 0) * Number(it.valor_unitario || 0))
+    }, 0)
+
+    await supabase
+      .from('pregoes')
+      .update({ valor_empenhado: +totalEmpenhadoPregao.toFixed(2), updated_at: agora })
+      .eq('id', item.pregao_id)
+
+    return {
+      data: {
+        quantidade_empenhada: qtdEmp,
+        saldo_empenho: saldo,
+        valorEmpenhadoPregao: +totalEmpenhadoPregao.toFixed(2),
+      },
+      error: null,
+    }
+  } catch (err: any) {
+    return { data: null, error: err.message ?? 'Erro ao atualizar empenho do item' }
+  }
+}
+
+/**
+ * Consolida os itens de todos os pedidos de compra com status 'FINALIZADO',
+ * garantindo que a quantidade empenhada em cada item de pregão seja no mínimo
+ * a quantidade solicitada nos pedidos finalizados.
+ */
+export async function recalcularSaldosPregaoDePedidos(pregaoIdFiltro?: string): Promise<ApiResult<{ itensAtualizados: number }>> {
+  try {
+    // 1. Buscar pedidos finalizados
+    const { data: pedidosFinalizados, error: errPed } = await supabase
+      .from('pedidos_compra')
+      .select('id')
+      .eq('status', 'FINALIZADO')
+
+    if (errPed) return { data: null, error: errPed.message }
+
+    const idsPedidosFinalizados = new Set((pedidosFinalizados ?? []).map(p => p.id))
+    if (idsPedidosFinalizados.size === 0) {
+      return { data: { itensAtualizados: 0 }, error: null }
+    }
+
+    // 2. Buscar itens dos pedidos finalizados
+    const { data: itensPedidos, error: errItensPed } = await supabase
+      .from('itens_pedido_compra')
+      .select('item_pregao_id, numero_pregao, numero_item, quantidade, valor_total, pedido_id')
+
+    if (errItensPed) return { data: null, error: errItensPed.message }
+
+    // Mapa de empenhos por item_pregao_id e por (numero_pregao, numero_item)
+    const empenhosPorItemId = new Map<string, number>()
+    const empenhosPorPregaoEItem = new Map<string, number>()
+
+    for (const it of itensPedidos ?? []) {
+      if (!idsPedidosFinalizados.has(it.pedido_id)) continue
+      const qtd = Number(it.quantidade) || 0
+
+      if (it.item_pregao_id) {
+        empenhosPorItemId.set(it.item_pregao_id, (empenhosPorItemId.get(it.item_pregao_id) || 0) + qtd)
+      }
+
+      if (it.numero_pregao && it.numero_item) {
+        // Normaliza número de pregão removendo zeros à esquerda se houver (ex: "90016/2026")
+        const chave = `${it.numero_pregao.trim()}#${it.numero_item}`
+        empenhosPorPregaoEItem.set(chave, (empenhosPorPregaoEItem.get(chave) || 0) + qtd)
+      }
+    }
+
+    // 3. Buscar pregões correspondentes
+    let queryPregoes = supabase.from('pregoes').select('id, numero_pregao')
+    if (pregaoIdFiltro) {
+      queryPregoes = queryPregoes.eq('id', pregaoIdFiltro)
+    }
+    const { data: pregoesList, error: errPregoes } = await queryPregoes
+    if (errPregoes) return { data: null, error: errPregoes.message }
+
+    let totalItensAtualizados = 0
+    const agora = new Date().toISOString()
+
+    for (const p of pregoesList ?? []) {
+      const { data: itensDoPregao, error: errItens } = await supabase
+        .from('itens_pregao')
+        .select('id, numero_item, quantidade_licitada, quantidade_empenhada, valor_unitario')
+        .eq('pregao_id', p.id)
+
+      if (errItens || !itensDoPregao) continue
+
+      let pregaoTeveMudanca = false
+
+      for (const item of itensDoPregao) {
+        const qtdPorId = empenhosPorItemId.get(item.id) || 0
+        const chaveNum = `${(p.numero_pregao || '').trim()}#${item.numero_item}`
+        const qtdPorChave = empenhosPorPregaoEItem.get(chaveNum) || 0
+        const qtdFinalizados = Math.max(qtdPorId, qtdPorChave)
+
+        const qtdAtual = Number(item.quantidade_empenhada) || 0
+        // A quantidade empenhada deve ser pelo menos a soma dos pedidos finalizados
+        if (qtdFinalizados > qtdAtual) {
+          const qtdLic = Number(item.quantidade_licitada) || 0
+          const novoSaldo = Math.max(0, qtdLic - qtdFinalizados)
+
+          await supabase
+            .from('itens_pregao')
+            .update({
+              quantidade_empenhada: qtdFinalizados,
+              saldo_empenho: novoSaldo,
+              saldo_restante: novoSaldo,
+              updated_at: agora,
+            })
+            .eq('id', item.id)
+
+          item.quantidade_empenhada = qtdFinalizados
+          pregaoTeveMudanca = true
+          totalItensAtualizados++
+        }
+      }
+
+      if (pregaoTeveMudanca) {
+        const totalEmpenhado = itensDoPregao.reduce((acc, it) => {
+          return acc + (Number(it.quantidade_empenhada || 0) * Number(it.valor_unitario || 0))
+        }, 0)
+
+        await supabase
+          .from('pregoes')
+          .update({ valor_empenhado: +totalEmpenhado.toFixed(2), updated_at: agora })
+          .eq('id', p.id)
+      }
+    }
+
+    return { data: { itensAtualizados: totalItensAtualizados }, error: null }
+  } catch (err: any) {
+    return { data: null, error: err.message ?? 'Erro ao recalcular saldos' }
+  }
 }
 

@@ -32,6 +32,46 @@ export const PLANO_INTERNO_TO_SIS: Record<string, string[]> = {
   'E4AVVTRVASL': ['39'],   // Manutenção de veículos
 }
 
+// ─── PI → NC (Nota de Crédito) — atualizar no início de cada exercício ─────────
+// Formato sugerido: "NC XXXX/AAAA" ou o número do documento de dotação orçamentária
+
+export const PLANO_INTERNO_TO_NC: Record<string, string> = {
+  'E4AVSUNCOLU': '',
+  'E4AVSUNQUIM': '',
+  'E4AVSUNOUTR': '',
+  'E4AVSUNSIIN': '',
+  'E4AVSUNACEM': '',
+  'E4AVSUNUNIF': '',
+  'E4AVSUNMABI': '',
+  'E4AVSUNAERO': '',
+  'E4AVSUNARMA': '',
+  'E4AVVTRVASL': '',
+}
+
+export const SI_NAMES: Record<string, string> = {
+  '01': 'Combustíveis Automotivos',
+  '02': 'Combustível e Lubrificante de Aviação',
+  '04': 'Gás Engarrafado',
+  '11': 'Material Químico',
+  '13': 'Material de Caça e Pesca',
+  '17': 'Material de Processamento de Dados',
+  '19': 'Material de Acondicionamento e Embalagem',
+  '22': 'Material de Limpeza e Produtos de Higienização',
+  '23': 'Uniformes, Tecidos e Aviamentos',
+  '24': 'Material para Manutenção de Bens Imóveis',
+  '26': 'Material Elétrico e Eletrônico',
+  '27': 'Material de Manobra e Patrulhamento',
+  '28': 'Material de Proteção e Segurança',
+  '29': 'Material para Áudio, Vídeo e Foto',
+  '32': 'Suprimento de Aviação',
+  '35': 'Material Laboratorial',
+  '36': 'Material Hospitalar',
+  '37': 'Sobressalente de Armamento',
+  '38': 'Material de Proteção ao Voo',
+  '39': 'Manutenção de Veículos',
+  '42': 'Ferramentas',
+}
+
 // ─── SI → PI (mapa reverso, construído automaticamente) ──────────────────────
 
 export const SI_TO_PLANO_INTERNO: Record<string, string> = {}
@@ -57,6 +97,15 @@ export function getSisFromPlanoInterno(planoInterno: string): string[] {
  */
 export function getPiFromSi(si: string): string | null {
   return SI_TO_PLANO_INTERNO[si.padStart(2, '0')] ?? null
+}
+
+/**
+ * Retorna a NC (Nota de Crédito) associada ao PI de um dado SI.
+ */
+export function getNcFromSi(si: string): string {
+  const pi = getPiFromSi(si.padStart(2, '0'))
+  if (!pi) return ''
+  return PLANO_INTERNO_TO_NC[pi] ?? ''
 }
 
 /**

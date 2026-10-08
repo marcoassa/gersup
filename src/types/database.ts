@@ -20,6 +20,8 @@ export interface Database {
           nome_fantasia: string | null
           contato: string | null
           email: string | null
+          impedido_empenho?: boolean
+          motivo_impedimento?: string | null
           created_at: string
         }
         Insert: Omit<Database['public']['Tables']['fornecedores']['Row'], 'id' | 'created_at'>

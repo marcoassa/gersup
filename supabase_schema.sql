@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS itens_pregao (
   pregao_id           UUID NOT NULL REFERENCES pregoes(id) ON DELETE CASCADE,
   numero_item         INTEGER NOT NULL,
   descricao           TEXT NOT NULL,
+  descricao_tr        TEXT,
   unidade             TEXT NOT NULL DEFAULT 'UN',
   quantidade_licitada NUMERIC(12,4) NOT NULL DEFAULT 0,
   quantidade_empenhada NUMERIC(12,4) NOT NULL DEFAULT 0,

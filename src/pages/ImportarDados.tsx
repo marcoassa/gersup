@@ -283,7 +283,7 @@ export default function ImportarDados() {
       setEtapa('fornecimentos', {
         status: 'importando',
         linhasFiltradas: result.totalLinhasMercadoInterno,
-        detalhe: `${result.totalLinhasUltimos5Anos.toLocaleString('pt-BR')} nos últimos 5 anos`,
+        detalhe: `${result.totalLinhasUltimos5Anos.toLocaleString('pt-BR')} nos últimos 5 anos (${result.totalLinhasIgnoradasPorSolicitante.toLocaleString('pt-BR')} não-operacionais ignorados)`,
       })
       setProg('fornecimentos', 0)
 
@@ -304,7 +304,11 @@ export default function ImportarDados() {
         n => { setProg('fornecimentos', n); setEtapa('fornecimentos', { linhasImportadas: n }) }
       )
       if (err) throw new Error(err)
-      setEtapa('fornecimentos', { status: 'ok', linhasImportadas: fornRows.length })
+      setEtapa('fornecimentos', {
+        status: 'ok',
+        linhasImportadas: fornRows.length,
+        detalhe: `${fornRows.length.toLocaleString('pt-BR')} importados (${result.totalLinhasIgnoradasPorSolicitante.toLocaleString('pt-BR')} descarte/auditoria ignorados)`,
+      })
 
       setResumoFinal(`Importação completa! ${result.mediasPorMaster.length} MASTER com histórico de consumo. ${result.mediasPorMaster.filter(m => m.consumoRecorrente).length} com consumo recorrente.`)
     } catch (e: any) {

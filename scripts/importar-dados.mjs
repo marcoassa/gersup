@@ -278,6 +278,40 @@ async function importarEstoque(mapaComponenteParaMaster) {
   console.log(`  ✅ ${estoqueRows.length} registros de estoque importados (${errors} lotes com erro)`)
 }
 
+// ─── Regras de Descarte / Solicitantes Ignorados ──────────────────────────────
+
+const PALAVRAS_CHAVE_SOLICITANTE_IGNORADO = [
+  'descart',      // Descarte
+  'audit',        // Auditoria
+  'sucat',        // Sucata
+  'descaract',    // Comissão Descaract Material
+]
+
+const SOLICITANTES_ESPECIFICOS_IGNORADOS = [
+  'BMS - Cia Sup Trnsp Av (Estoque)',
+  'BMS - Recebimento Técnico',
+  'BMS - Triagem',
+  'BMS - Modernizacao',
+  'AIRBUS - TROCA STANDARD',
+  'B Av T - RANCHO',
+]
+
+function isSolicitanteIgnorado(solicitante) {
+  if (!solicitante) return false
+  let raw = String(solicitante).trim()
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    raw = raw.slice(1, -1).trim()
+  }
+  const norm = normalize(raw)
+  for (const termo of PALAVRAS_CHAVE_SOLICITANTE_IGNORADO) {
+    if (norm.includes(normalize(termo))) return true
+  }
+  for (const esp of SOLICITANTES_ESPECIFICOS_IGNORADOS) {
+    if (norm === normalize(esp)) return true
+  }
+  return false
+}
+
 // ─── ETAPA 3: Importar Fornecimentos ───────────────────────────────────────────
 
 async function importarFornecimentos(mapaComponenteParaMaster) {
@@ -288,7 +322,7 @@ async function importarFornecimentos(mapaComponenteParaMaster) {
   const dataLimite = new Date(hoje.getFullYear() - 5, hoje.getMonth(), hoje.getDate())
 
   const fornRows = []
-  let totalLinhas = 0, totalCavex = 0, total5Anos = 0, totalMI = 0
+  let totalLinhas = 0, totalCavex = 0, total5Anos = 0, totalIgnoradosSolicitante = 0, totalMI = 0
 
   for await (const row of readCSV(resolve(PLANILHAS, 'ConsDinamicaMatFornecido.csv'))) {
     totalLinhas++
@@ -300,6 +334,12 @@ async function importarFornecimentos(mapaComponenteParaMaster) {
     const data = parseDateSafe(dtRaw)
     if (!data || data < dataLimite) continue
     total5Anos++
+
+    const solicitante = getField(row, 'Solicitante') || null
+    if (isSolicitanteIgnorado(solicitante)) {
+      totalIgnoradosSolicitante++
+      continue
+    }
 
     const cdComp = cleanCode(
       getField(row, 'Cod_Componente', 'Cód_Componente', 'CD_COMP', 'CD_COMPONENTE')
@@ -317,7 +357,7 @@ async function importarFornecimentos(mapaComponenteParaMaster) {
       ano: data.getFullYear(),
       data: dateToISO(data),
       quantidade: qtd,
-      solicitante: getField(row, 'Solicitante') || null,
+      solicitante,
       ambiente: 'CAVEX',
     })
 
@@ -327,6 +367,7 @@ async function importarFornecimentos(mapaComponenteParaMaster) {
   console.log(`  Total original:     ${totalLinhas}`)
   console.log(`  CAVEX:              ${totalCavex}`)
   console.log(`  Últimos 5 anos:     ${total5Anos}`)
+  console.log(`  Ignorados (baixa):  ${totalIgnoradosSolicitante}`)
   console.log(`  Mercado Interno:    ${totalMI}`)
   console.log(`  Registros válidos:  ${fornRows.length}`)
   console.log(`  Inserindo no banco...`)

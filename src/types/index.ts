@@ -16,7 +16,24 @@ export interface Fornecedor {
   nome_fantasia: string | null
   contato: string | null
   email: string | null
+  impedido_empenho?: boolean
+  motivo_impedimento?: string | null
   created_at: string
+}
+
+export interface FornecedorConsolidado {
+  id?: string
+  cnpj: string
+  clean_cnpj: string
+  razao_social: string
+  nome_fantasia?: string | null
+  contato?: string | null
+  email?: string | null
+  impedido_empenho: boolean
+  motivo_impedimento?: string | null
+  total_itens: number
+  total_pregoes: number
+  pregoes: string[]
 }
 
 export interface Pregao {
@@ -24,6 +41,7 @@ export interface Pregao {
   id_pncp_compra?: string
   numero_pregao: string
   objeto: string
+  nup: string | null           // Número Único de Processo
   data_abertura: string | null
   data_vencimento: string
   valor_total: number
@@ -42,13 +60,17 @@ export interface ItemPregao {
   pregao_id: string
   numero_item: number
   descricao: string
+  descricao_tr: string | null
   unidade: string
   quantidade_licitada: number
   quantidade_empenhada: number
   saldo_empenho: number
   valor_unitario: number
   fornecedor_id: string | null
+  fornecedor_nome?: string | null
+  fornecedor_cnpj?: string | null
   cd_comp_master: string | null
+  cm?: string | null
   status_pncp: string | null
   created_at: string
   updated_at: string
@@ -167,6 +189,27 @@ export interface ProdutoMaster extends Produto {
   cobertura_meses: number
 }
 
+export interface PregaoDisponivel {
+  id: string
+  numero_item: number
+  numero_pregao: string
+  descricao: string
+  descricao_tr?: string | null
+  valor_unitario: number
+  saldo_empenho: number
+  fornecedor_nome?: string | null
+  fornecedor_cnpj?: string | null
+  impedido?: boolean
+  motivo_impedimento?: string | null
+}
+
+export interface PedidoPendenteOrigem {
+  pedido_id: string
+  pedido_numero: number
+  quantidade: number
+  status?: string
+}
+
 export interface ItemCompras {
   cd_comp_master: string
   nomenclatura: string
@@ -174,16 +217,29 @@ export interface ItemCompras {
   mpn: string | null
   nd: string | null
   si: string | null
+  cm: string | null
   estoque_atual: number
   pedidos_pendentes: number
+  pedidos_pendentes_detalhes?: PedidoPendenteOrigem[]
   saldo_pregoes: number
   custo_unitario_pregao: number | null
   media_mensal: number
   cobertura_meses: number
   anos_com_consumo: number
   tem_pregao_ativo: boolean
+  tem_fornecedor_impedido?: boolean
+  motivo_impedimento?: string | null
   quantidade_sugerida: number
   criticidade: CriticidadeCompra
+  quantidade_licitada?: number
+  quantidade_empenhada?: number
+  // Todos os pregões ativos disponíveis para o master
+  pregoes_disponiveis: PregaoDisponivel[]
+  // Dados do item do pregão ativo principal/selecionado (usado de fallback para o pedido)
+  item_pregao_id: string | null
+  numero_item_pregao: number | null
+  numero_pregao_ativo: string | null
+  descricao_pregao_ativo: string | null
 }
 
 export interface ItemPlanejamento {
@@ -220,12 +276,14 @@ export interface GrupoPedido {
 // ─── Filtros ──────────────────────────────────────────────────────────────────
 
 export interface FiltrosCompras {
-  min_anos_consumo: 2 | 3 | 4
+  min_anos_consumo: 0 | 2 | 3 | 4
   media_mensal_min: 0.5 | 1 | 2 | 5
   cobertura_alvo: 6 | 12 | 18 | 24
   so_com_consumo_recorrente: boolean
-  pregao_ativo?: 'TODOS' | 'SIM' | 'NAO'
+  pregao_ativo?: 'TODOS' | 'SIM' | 'NAO' | 'IMPEDIDO'
   criticidade?: 'TODAS' | CriticidadeCompra
+  si?: string
+  status_pedidos_pregao?: 'TODOS' | 'COM_PEDIDOS' | 'COM_SALDO' | 'SEM_SALDO'
   pagina: number
   por_pagina: number
 }
@@ -254,16 +312,76 @@ export interface ModificadorPlanejamento {
 
 // ─── Notas de Crédito ─────────────────────────────────────────────────────────
 
+export type StatusNotaCredito = 'ATIVA' | 'ENCERRADA'
+
 export interface NotaCredito {
   id: string
+  numero_nc: string | null     // Formato: aaaaNCxxxxxx (ex: 2026NC409600)
+  data_emissao: string | null  // Data de emissão da NC (ISO: YYYY-MM-DD)
+  ug_emitente: string | null   // UG que emitiu a NC (ex: 160504)
   ptres: string
   fonte_recursos: string
   natureza_despesa: string
   ugr: string
   plano_interno: string
-  si: string          // derivado automaticamente do Plano Interno via Ementário
+  si: string          // SI específico vinculado à NC (manual para PIs com múltiplos SIs)
   valor: number
   descricao: string | null
+  status: StatusNotaCredito
   created_at: string
   updated_at: string
+}
+
+// ─── Pedidos de Compra ──────────────────────────────────────────────────
+
+export type StatusPedidoCompra = 'RASCUNHO' | 'FINALIZADO' | 'ENTREGUE' | 'CANCELADO'
+
+export interface ItemPedidoCompra {
+  id: string
+  pedido_id: string
+  item_pregao_id: string | null
+  cd_comp_master: string
+  nomenclatura: string | null
+  descricao_pregao: string | null
+  descricao_tr: string | null
+  pn: string | null
+  mpn: string | null
+  nd: string | null
+  si: string | null
+  cm: string | null
+  numero_pregao: string | null
+  numero_item: number | null
+  valor_unitario: number
+  quantidade: number
+  valor_total: number
+  fornecedor_nome: string | null
+  fornecedor_cnpj: string | null
+}
+
+export interface PedidoCompra {
+  id: string
+  numero: number
+  status: StatusPedidoCompra
+  observacoes: string | null
+  valor_total: number
+  criado_por: string | null
+  criado_em: string
+  atualizado_em: string
+  itens?: ItemPedidoCompra[]
+}
+
+// Item do carrinho enriquecido (estado em Compras.tsx)
+export interface ItemCarrinhoEnriquecido {
+  qtd: number
+  si: string | null
+  custo: number
+  item_pregao_id: string | null
+  numero_item: number | null
+  numero_pregao: string | null
+  nomenclatura: string
+  pn: string | null
+  mpn: string | null
+  nd: string | null
+  cm: string | null
+  valor_unitario: number
 }

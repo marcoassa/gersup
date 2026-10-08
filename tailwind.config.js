@@ -7,15 +7,45 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Verde Oliva Militar (Military Olive Green)
         primary: {
-          50: '#f0f4ff', 100: '#e0e9ff', 200: '#c7d6fe', 300: '#a5b8fc',
-          400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca',
-          800: '#3730a3', 900: '#312e81',
+          50: '#f4f7ee',
+          100: '#e4eed7',
+          200: '#c8ddaf',
+          300: '#a7c883',
+          400: '#87b05d',
+          500: '#6c9545',
+          600: '#547734',
+          700: '#415c2a',
+          800: '#354a23',
+          900: '#2d3e1f',
         },
+        // Superfícies em tom Verde Oliva Escuro Profundo
         surface: {
-          900: '#0b0e18', 800: '#131929', 700: '#1a2236', 600: '#212b42',
-          500: '#2c3a56', 400: '#4a5a82', 300: '#7a8db5', 200: '#a8b8d8',
-          100: '#cdd8ee', 50: '#edf1f9',
+          950: '#0c1008',
+          900: '#12170e',
+          800: '#192113',
+          700: '#222d1a',
+          600: '#2e3d24',
+          500: '#435635',
+          400: '#758c67',
+          300: '#a2b794',
+          200: '#c7d8bd',
+          100: '#e6efe0',
+          50: '#f4f8f0',
+        },
+        // Amarelo e Dourado Militar (Military Gold / Yellow Accent)
+        accent: {
+          50: '#fefce8',
+          100: '#fef9c3',
+          200: '#fef08a',
+          300: '#fde047',
+          400: '#facc15',
+          500: '#eab308',
+          600: '#ca8a04',
+          700: '#a16207',
+          800: '#854d0e',
+          900: '#713f12',
         },
       },
       fontFamily: {

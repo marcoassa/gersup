@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   Banknote, Plus, Trash2, AlertTriangle, CheckCircle2,
-  ChevronDown, ChevronRight, X, Info, RefreshCw, Share2
+  ChevronDown, ChevronRight, X, Info, RefreshCw, Share2, Pencil
 } from 'lucide-react'
 import { useNotasCreditoStore } from '@/hooks/useNotasCreditoStore'
-import { getSisFromPlanoInterno, getSiUnicoFromPlanoInterno, getListaPlanosInternos } from '@/lib/ementario'
+import { getSisFromPlanoInterno, getListaPlanosInternos } from '@/lib/ementario'
 import { getSiTitulo, formatCurrency, cn } from '@/lib/utils'
 import type { NotaCredito } from '@/types'
 
@@ -14,21 +14,29 @@ const FONTE_PADRAO = '1000000000'
 const ND_PADRAO = '339000'
 
 type FormState = {
+  numero_nc: string
+  data_emissao: string
+  ug_emitente: string
   ptres: string
   fonte_recursos: string
   natureza_despesa: string
   ugr: string
   plano_interno: string
+  si_manual: string      // SI escolhido manualmente (para PIs com múltiplos SIs)
   valor: string
   descricao: string
 }
 
 const FORM_INICIAL: FormState = {
+  numero_nc: '',
+  data_emissao: '',
+  ug_emitente: '',
   ptres: '',
   fonte_recursos: FONTE_PADRAO,
   natureza_despesa: ND_PADRAO,
   ugr: '',
   plano_interno: '',
+  si_manual: '',
   valor: '',
   descricao: '',
 }
@@ -59,18 +67,24 @@ interface GrupoPI {
   sisCobertas: string[]
   notas: NotaCredito[]
   totalValor: number
+  saldoDisponivel: number
+  gasto: number
 }
 
 function CardGrupoPI({
-  grupo, onDelete, expanded, onToggle,
+  grupo, onDelete, onEdit, onEncerrar, expanded, onToggle, saldoPorNC
 }: {
   grupo: GrupoPI
   onDelete: (id: string) => void
+  onEdit: (nc: NotaCredito) => void
+  onEncerrar: (nc: NotaCredito, saldo: number) => void
   expanded: boolean
   onToggle: () => void
+  saldoPorNC: Record<string, number>
 }) {
   const cor = getPiColor(grupo.pi)
   const compartilhado = grupo.sisCobertas.length > 1
+  const houveGastoGrupo = grupo.totalValor - grupo.saldoDisponivel > 0.009
 
   return (
     <div
@@ -112,11 +126,17 @@ function CardGrupoPI({
           </p>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-base font-bold" style={{ color: cor }}>
-            {formatCurrency(grupo.totalValor)}
+          <p className={cn(
+            "text-[10px] text-surface-400 font-semibold mb-0.5 decoration-surface-500/50",
+            houveGastoGrupo && "line-through"
+          )}>
+            Bruto: {formatCurrency(grupo.totalValor)}
           </p>
-          <p className="text-[10px] text-surface-400 uppercase tracking-wider">
-            {compartilhado ? 'pool disponível' : 'disponível'}
+          <p className="text-base font-bold leading-none" style={{ color: cor }}>
+            {formatCurrency(grupo.saldoDisponivel)}
+          </p>
+          <p className="text-[10px] text-surface-400 uppercase tracking-wider mt-1">
+            {compartilhado ? 'pool líquido' : 'líquido'}
           </p>
         </div>
         <span className="text-surface-400 ml-2">
@@ -126,13 +146,70 @@ function CardGrupoPI({
 
       {expanded && (
         <div className="border-t divide-y" style={{ borderColor: `${cor}20` }}>
-          {grupo.notas.map(nc => (
+          {grupo.notas.map(nc => {
+            const saldoAtual = saldoPorNC[nc.id] ?? Number(nc.valor)
+            const esgotada = saldoAtual <= 0
+            const houveGastoNC = Number(nc.valor) - saldoAtual > 0.009
+            const siResolvida = nc.si?.trim()
+              ? nc.si.trim().padStart(2, '0')
+              : (grupo.sisCobertas.length === 1 ? grupo.sisCobertas[0].padStart(2, '0') : null)
+            const siTitulo = siResolvida ? getSiTitulo(siResolvida) : ''
+            
+            return (
             <div
               key={nc.id}
-              className="flex items-start gap-3 px-4 py-3 hover:bg-white/5 transition-colors group"
+              className={cn(
+                "flex items-start gap-3 px-4 py-3 hover:bg-white/5 transition-colors group",
+                esgotada && "opacity-60 grayscale-[0.5]"
+              )}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
+                  {nc.status === 'ENCERRADA' && (
+                    <span className="text-[10px] font-bold text-surface-400 bg-surface-700/50 px-1.5 py-0.5 rounded border border-surface-600/50">
+                      ENCERRADA
+                    </span>
+                  )}
+                  {nc.numero_nc && (
+                    <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-900/30 border border-emerald-700/30 px-1.5 py-0.5 rounded">
+                      {nc.numero_nc}
+                    </span>
+                  )}
+                  {siResolvida ? (
+                    <span
+                      className="text-xs font-semibold px-2 py-0.5 rounded border flex items-center gap-1.5 shrink-0"
+                      style={{
+                        backgroundColor: `${cor}20`,
+                        borderColor: `${cor}50`,
+                        color: cor,
+                      }}
+                      title={`SI ${siResolvida} — ${siTitulo || `Subitem ${siResolvida}`}`}
+                    >
+                      <span className="font-mono font-bold">SI {siResolvida}</span>
+                      {siTitulo && (
+                        <span className="text-[10px] font-normal opacity-90 hidden sm:inline">
+                          — {siTitulo}
+                        </span>
+                      )}
+                    </span>
+                  ) : (compartilhado ? (
+                    <span
+                      className="text-[10px] text-surface-400 bg-surface-800/80 border border-surface-700/60 px-1.5 py-0.5 rounded italic shrink-0"
+                      title="Esta NC não foi vinculada a uma SI específica"
+                    >
+                      SI: Pool Geral
+                    </span>
+                  ) : null)}
+                  {nc.data_emissao && (
+                    <span className="text-xs text-surface-300">
+                      {new Date(nc.data_emissao + 'T00:00:00').toLocaleDateString('pt-BR')}
+                    </span>
+                  )}
+                  {nc.ug_emitente && (
+                    <span className="text-xs font-mono text-sky-300 bg-sky-900/20 border border-sky-700/30 px-1.5 py-0.5 rounded">
+                      UG {nc.ug_emitente}
+                    </span>
+                  )}
                   <span className="text-xs text-surface-400 font-mono">PTRES: {nc.ptres}</span>
                   <span className="text-xs text-surface-400 font-mono">UGR: {nc.ugr}</span>
                 </div>
@@ -145,20 +222,45 @@ function CardGrupoPI({
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-sm font-semibold text-surface-50">{formatCurrency(Number(nc.valor))}</p>
-                <p className="text-[10px] text-surface-500">
+                <p className={cn("text-[10px] text-surface-400 mb-0.5", houveGastoNC && "line-through")}>
+                  Emissão: {formatCurrency(Number(nc.valor))}
+                </p>
+                <p className={cn("text-sm font-semibold", esgotada ? "text-red-400" : "text-emerald-400")}>
+                  {formatCurrency(saldoAtual)}
+                </p>
+                <p className="text-[10px] text-surface-500 mt-1">
                   {new Date(nc.created_at).toLocaleDateString('pt-BR')}
                 </p>
               </div>
-              <button
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1 mt-0.5"
-                title="Excluir nota de crédito"
-                onClick={() => onDelete(nc.id)}
-              >
-                <Trash2 size={14} />
-              </button>
+              <div className="flex flex-col items-center shrink-0 ml-1 mt-0.5 space-y-1">
+                {nc.status !== 'ENCERRADA' && !esgotada && (
+                  <button
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-amber-400 hover:text-amber-300"
+                    title="Encerrar nota de crédito"
+                    onClick={() => onEncerrar(nc, saldoAtual)}
+                  >
+                    <CheckCircle2 size={14} />
+                  </button>
+                )}
+                <button
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-primary-400 hover:text-primary-300"
+                  title="Editar nota de crédito"
+                  onClick={() => onEdit(nc)}
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300"
+                  title="Excluir nota de crédito"
+                  onClick={() => onDelete(nc.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -168,8 +270,9 @@ function CardGrupoPI({
 // ─── Página Principal ─────────────────────────────────────────────────────────
 
 export default function NotasCredito() {
-  const { notas, fetched, loading, error, fetchNotas, addNota, removeNota, totalPorPI } = useNotasCreditoStore()
+  const { notas, fetched, loading, error, fetchNotas, addNota, updateNota, removeNota, saldoPorNC } = useNotasCreditoStore()
   const [form, setForm] = useState<FormState>(FORM_INICIAL)
+  const [editandoId, setEditandoId] = useState<string | null>(null)
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
   const [salvando, setSalvando] = useState(false)
   const [errForm, setErrForm] = useState<string | null>(null)
@@ -181,6 +284,13 @@ export default function NotasCredito() {
     form.plano_interno ? getSisFromPlanoInterno(form.plano_interno) : [],
     [form.plano_interno]
   )
+
+  // Quando o PI muda, limpar o SI manual se ele não pertencer mais ao novo PI
+  useEffect(() => {
+    if (form.si_manual && !sisDoPI.includes(form.si_manual)) {
+      setForm(p => ({ ...p, si_manual: sisDoPI.length === 1 ? sisDoPI[0] : '' }))
+    }
+  }, [sisDoPI, form.si_manual])
 
   const piCompartilhado = sisDoPI.length > 1
 
@@ -195,23 +305,31 @@ export default function NotasCredito() {
   const grupos = useMemo((): GrupoPI[] => {
     const map = new Map<string, NotaCredito[]>()
     notas.forEach(nc => {
-      const pi = nc.plano_interno || 'OUTROS'
+      const pi = nc.plano_interno?.trim() || 'OUTROS'
       const arr = map.get(pi) || []
       arr.push(nc)
       map.set(pi, arr)
     })
     return Array.from(map.entries())
-      .map(([pi, ncs]) => ({
-        pi,
-        sisCobertas: getSisFromPlanoInterno(pi),
-        notas: ncs,
-        totalValor: ncs.reduce((s, nc) => s + Number(nc.valor), 0),
-      }))
+      .map(([pi, ncs]) => {
+        const totalValor = ncs.reduce((s, nc) => s + Number(nc.valor), 0)
+        const saldoDisponivel = ncs.reduce((s, nc) => s + (saldoPorNC[nc.id] ?? Number(nc.valor)), 0)
+        const gasto = totalValor - saldoDisponivel
+        return {
+          pi,
+          sisCobertas: getSisFromPlanoInterno(pi),
+          notas: ncs,
+          totalValor,
+          saldoDisponivel,
+          gasto
+        }
+      })
       .sort((a, b) => a.pi.localeCompare(b.pi))
-  }, [notas])
+  }, [notas, saldoPorNC])
 
-  const totalGeral = useMemo(() =>
-    Object.values(totalPorPI).reduce((s, v) => s + v, 0), [totalPorPI])
+  const totalGeral = useMemo(() => {
+    return grupos.reduce((s, g) => s + g.saldoDisponivel, 0)
+  }, [grupos])
 
   const toggleExpand = (pi: string) => {
     setExpandidos(prev => {
@@ -221,6 +339,30 @@ export default function NotasCredito() {
     })
   }
 
+  const handleEdit = (nc: NotaCredito) => {
+    setEditandoId(nc.id)
+    setForm({
+      numero_nc: nc.numero_nc || '',
+      data_emissao: nc.data_emissao || '',
+      ug_emitente: nc.ug_emitente || '',
+      ptres: nc.ptres,
+      fonte_recursos: nc.fonte_recursos,
+      natureza_despesa: nc.natureza_despesa,
+      ugr: nc.ugr,
+      plano_interno: nc.plano_interno,
+      si_manual: nc.si || '',
+      valor: nc.valor.toString().replace('.', ','),
+      descricao: nc.descricao || '',
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleCancelEdit = () => {
+    setEditandoId(null)
+    setForm(FORM_INICIAL)
+    setErrForm(null)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrForm(null)
@@ -228,17 +370,34 @@ export default function NotasCredito() {
 
     if (!form.ptres.trim()) return setErrForm('PTRES é obrigatório.')
     if (!form.ugr.trim()) return setErrForm('UGR é obrigatório.')
+    if (!form.ug_emitente.trim()) return setErrForm('UG Emitente é obrigatória.')
     if (!form.plano_interno.trim()) return setErrForm('Selecione o Plano Interno.')
     if (sisDoPI.length === 0) return setErrForm('Plano Interno não encontrado no Ementário.')
+
+    // Valida formato do Nr NC se preenchido: aaaaNCxxxxxx
+    const numeroNc = form.numero_nc.trim().toUpperCase()
+    if (numeroNc && !/^\d{4}NC\d+$/.test(numeroNc)) {
+      return setErrForm('Nº da NC inválido. Use o formato aaaaNCxxxxxx (ex: 2026NC409600).')
+    }
 
     const valor = parseFloat(form.valor.replace(',', '.'))
     if (!valor || valor <= 0) return setErrForm('Valor deve ser maior que zero.')
 
-    // O SI armazenado é o único SI (se PI→1 SI) ou vazio (se PI→múltiplos SIs)
-    const siParaArmazenar = getSiUnicoFromPlanoInterno(form.plano_interno) ?? ''
+    // SI: manual (para PIs com múltiplos SIs) ou único derivado do ementário
+    const siParaArmazenar = piCompartilhado
+      ? (form.si_manual || '')
+      : (sisDoPI[0] || '')
+
+    if (piCompartilhado && !siParaArmazenar) {
+      return setErrForm('Selecione o Subitem (SI) específico desta NC.')
+    }
 
     setSalvando(true)
-    const err = await addNota({
+
+    const payload = {
+      numero_nc: numeroNc || null,
+      data_emissao: form.data_emissao.trim() || null,
+      ug_emitente: form.ug_emitente.trim().toUpperCase(),
       ptres: form.ptres.trim().toUpperCase(),
       fonte_recursos: form.fonte_recursos.trim() || FONTE_PADRAO,
       natureza_despesa: form.natureza_despesa.trim() || ND_PADRAO,
@@ -247,16 +406,37 @@ export default function NotasCredito() {
       si: siParaArmazenar,
       valor,
       descricao: form.descricao.trim() || null,
-    })
+      status: 'ATIVA' as const,
+    }
+
+    const err = editandoId
+      ? await updateNota(editandoId, payload)
+      : await addNota(payload)
+      
     setSalvando(false)
 
     if (err) {
       setErrForm(`Erro ao salvar: ${err}`)
     } else {
-      setSuccMsg('Nota de Crédito cadastrada com sucesso!')
+      setSuccMsg(editandoId ? 'Nota de Crédito atualizada com sucesso!' : 'Nota de Crédito cadastrada com sucesso!')
       setForm(FORM_INICIAL)
+      setEditandoId(null)
       setExpandidos(prev => new Set([...prev, form.plano_interno.toUpperCase()]))
       setTimeout(() => setSuccMsg(null), 4000)
+    }
+  }
+
+  const handleEncerrar = async (nc: NotaCredito, saldoRestante: number) => {
+    if (confirm(`Tem certeza que deseja encerrar esta Nota de Crédito?\n\nO saldo restante de ${formatCurrency(saldoRestante)} será DESCARTADO do orçamento disponível. Essa ação não afeta os pedidos já realizados com esta nota.`)) {
+      setSalvando(true)
+      const err = await updateNota(nc.id, { status: 'ENCERRADA' })
+      setSalvando(false)
+      if (err) {
+        setErrForm(`Erro ao encerrar NC: ${err}`)
+      } else {
+        setSuccMsg('Nota de Crédito encerrada com sucesso.')
+        setTimeout(() => setSuccMsg(null), 4000)
+      }
     }
   }
 
@@ -314,7 +494,7 @@ export default function NotasCredito() {
               <p className="text-[10px] text-surface-400 leading-tight mb-2">
                 {g.sisCobertas.map(s => `SI ${s.padStart(2, '0')}`).join(' + ')}
               </p>
-              <p className="text-base font-bold text-surface-50">{formatCurrency(g.totalValor)}</p>
+              <p className="text-base font-bold text-surface-50">{formatCurrency(g.saldoDisponivel)}</p>
             </div>
           ))}
           <div className="rounded-xl p-3 border border-emerald-500/30 bg-emerald-500/10">
@@ -327,12 +507,65 @@ export default function NotasCredito() {
 
       {/* Formulário */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-surface-100 mb-4 flex items-center gap-2">
-          <Plus size={16} className="text-primary-400" />
-          Nova Nota de Crédito
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-surface-100 flex items-center gap-2">
+            {editandoId ? (
+              <><Pencil size={16} className="text-amber-400" /> Atualizar Nota de Crédito</>
+            ) : (
+              <><Plus size={16} className="text-primary-400" /> Nova Nota de Crédito</>
+            )}
+          </h3>
+          {editandoId && (
+            <button
+              onClick={handleCancelEdit}
+              className="text-xs text-surface-400 hover:text-surface-200 transition-colors underline underline-offset-2"
+            >
+              Cancelar edição
+            </button>
+          )}
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Nº da NC + Data de Emissão */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="stat-label block mb-1.5">
+                Nº da NC
+                <span className="ml-1 text-surface-500 text-[10px] normal-case">(ex: 2026NC409600)</span>
+              </label>
+              <input
+                className="input w-full font-mono text-sm uppercase tracking-wider"
+                placeholder="2026NC409600"
+                value={form.numero_nc}
+                onChange={e => setForm(p => ({ ...p, numero_nc: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="stat-label block mb-1.5">Data de Emissão</label>
+              <input
+                className="input w-full text-sm"
+                type="date"
+                value={form.data_emissao}
+                onChange={e => setForm(p => ({ ...p, data_emissao: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          {/* UG Emitente */}
+          <div>
+            <label className="stat-label block mb-1.5">
+              UG Emitente <span className="text-red-400">*</span>
+              <span className="ml-1 text-surface-500 text-[10px] normal-case">(UG que emitiu a NC)</span>
+            </label>
+            <input
+              className="input w-full font-mono text-sm uppercase tracking-wider"
+              placeholder="Ex: 160504"
+              value={form.ug_emitente}
+              onChange={e => setForm(p => ({ ...p, ug_emitente: e.target.value }))}
+              required
+            />
+          </div>
+
           {/* PTRES + UGR */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -404,7 +637,7 @@ export default function NotasCredito() {
               ))}
             </select>
 
-            {/* Info box sobre os SIs cobertos */}
+            {/* Info box sobre os SIs cobertos — ou seletor de SI manual */}
             {sisDoPI.length > 0 && (
               <div className={cn(
                 'mt-2 rounded-lg px-3 py-2.5 border text-xs',
@@ -413,26 +646,39 @@ export default function NotasCredito() {
                   : 'bg-emerald-950/20 border-emerald-700/30'
               )}>
                 {piCompartilhado ? (
-                  <div className="flex items-start gap-2">
-                    <Share2 size={12} className="text-amber-400 mt-0.5 shrink-0" />
-                    <div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Share2 size={12} className="text-amber-400 shrink-0" />
                       <span className="font-semibold text-amber-300">
-                        Pool compartilhado — este crédito cobre {sisDoPI.length} Subitens:
+                        PI com múltiplos SIs — selecione o SI específico desta NC:
                       </span>
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {sisDoPI.map(si => {
-                          const siPad = si.padStart(2, '0')
-                          return (
-                            <span key={si} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-900/40 text-amber-300 border border-amber-700/30">
-                              SI {siPad} — {getSiTitulo(siPad)}
-                            </span>
-                          )
-                        })}
-                      </div>
-                      <p className="text-amber-400/70 mt-1.5 text-[10px]">
-                        O saldo desta NC é consumido em conjunto por todos os Subitens acima nos menus Compras e Planejamento.
-                      </p>
                     </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {sisDoPI.map(si => {
+                        const siPad = si.padStart(2, '0')
+                        const selecionado = form.si_manual === si || form.si_manual === siPad
+                        return (
+                          <button
+                            key={si}
+                            type="button"
+                            onClick={() => setForm(p => ({ ...p, si_manual: si }))}
+                            className={cn(
+                              'px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-all',
+                              selecionado
+                                ? 'bg-primary-600/40 text-primary-200 border-primary-500/60 ring-1 ring-primary-400'
+                                : 'bg-amber-900/30 text-amber-300 border-amber-700/30 hover:bg-amber-800/40'
+                            )}
+                          >
+                            SI {siPad} — {getSiTitulo(siPad) || `Subitem ${siPad}`}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {!form.si_manual && (
+                      <p className="text-[10px] text-amber-400 flex items-center gap-1">
+                        <AlertTriangle size={10} /> Selecione um SI para continuar.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 text-emerald-300">
@@ -452,9 +698,7 @@ export default function NotasCredito() {
               <label className="stat-label block mb-1.5">Valor (R$) <span className="text-red-400">*</span></label>
               <input
                 className="input w-full text-sm font-semibold"
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
                 placeholder="0,00"
                 value={form.valor}
                 onChange={e => setForm(p => ({ ...p, valor: e.target.value }))}
@@ -471,13 +715,12 @@ export default function NotasCredito() {
             </div>
           </div>
 
-          {/* Info */}
+          {/* Info + Ações */}
           <div className="flex items-start gap-2 text-xs text-surface-400 bg-surface-700/40 rounded-lg px-3 py-2">
             <Info size={13} className="shrink-0 mt-0.5 text-sky-400" />
             <span>
               O orçamento é controlado no nível do <strong className="text-surface-300">Plano Interno</strong>.
-              Subitens cobertos pelo mesmo PI compartilham um único pool de crédito nos menus{' '}
-              <strong className="text-surface-300">Compras</strong> e <strong className="text-surface-300">Planejamento</strong>.
+              Subitens cobertos pelo mesmo PI compartilham um único pool de crédito.
             </span>
           </div>
 
@@ -494,10 +737,15 @@ export default function NotasCredito() {
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-3 pt-2">
+            {editandoId && (
+              <button type="button" className="btn-secondary" onClick={handleCancelEdit} disabled={salvando}>
+                Cancelar
+              </button>
+            )}
             <button type="submit" className="btn-primary flex items-center gap-2" disabled={salvando}>
               {salvando ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
-              {salvando ? 'Cadastrando...' : 'Cadastrar Nota de Crédito'}
+              {salvando ? 'Salvando...' : editandoId ? 'Atualizar' : 'Cadastrar'}
             </button>
           </div>
         </form>
@@ -508,11 +756,6 @@ export default function NotasCredito() {
         <h3 className="text-sm font-semibold text-surface-300 uppercase tracking-wider flex items-center gap-2">
           <Banknote size={14} className="text-emerald-400" />
           Créditos Cadastrados
-          {notas.length > 0 && (
-            <span className="text-[10px] bg-emerald-900/30 text-emerald-400 border border-emerald-700/30 px-1.5 py-0.5 rounded-full">
-              {notas.length} nota{notas.length !== 1 ? 's' : ''}
-            </span>
-          )}
         </h3>
 
         {loading && !fetched && (
@@ -528,7 +771,6 @@ export default function NotasCredito() {
           <div className="text-center text-surface-400 text-sm py-12 card">
             <Banknote size={32} className="mx-auto mb-3 text-surface-600" />
             <p>Nenhuma nota de crédito cadastrada.</p>
-            <p className="text-xs mt-1">Use o formulário acima para cadastrar a primeira NC.</p>
           </div>
         )}
 
@@ -537,8 +779,11 @@ export default function NotasCredito() {
             <CardGrupoPI
               grupo={grupo}
               onDelete={id => setConfirmDelete(id)}
+              onEdit={handleEdit}
+              onEncerrar={handleEncerrar}
               expanded={expandidos.has(grupo.pi)}
               onToggle={() => toggleExpand(grupo.pi)}
+              saldoPorNC={saldoPorNC}
             />
           </div>
         ))}

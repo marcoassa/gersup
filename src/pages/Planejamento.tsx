@@ -15,9 +15,10 @@ import { getProdutos, getEstoque, getFornecimentos, getPregoes, getPedidosPenden
 import {
   agruparPorAno, mediaPonderada, safeDivide, calcCobertura, calcCriticidade,
   calcQuantidadeSugerida, formatNumber, formatCurrency, safeNum, calcStatusPregao,
-  getSiTitulo, cn
+  getSiTitulo, cn, extrairModeloMarcaRef
 } from '@/lib/utils'
 import { LoadingSpinner, ErrorCard } from '@/components/ui/States'
+import ItemDescTooltip, { ResumoTRTooltipContent } from '@/components/ui/ItemDescTooltip'
 import type { CriticidadeCompra } from '@/types'
 
 type AbaPlanejamento = 'financeiro' | 'pregoes'
@@ -220,6 +221,14 @@ interface ItemBasePlanejamento {
   necessidade_total?: number
   // Campos com override aplicado
   campos_corrigidos: string[]
+  item_pregao?: {
+    numero_pregao?: string
+    numero_item?: number
+    descricao_tr?: string | null
+    descricao?: string | null
+    valor_unitario?: number
+    saldo_empenho?: number
+  } | null
 }
 
 interface GrupoSiFinanceiro {
@@ -440,6 +449,14 @@ export default function Planejamento() {
     // Saldo e Preços de Pregões Ativos
     const pregaoSaldo = new Map<string, number>()
     const pregaoPreco = new Map<string, number>() // armazena o preco unitario do pregao ativo
+    const pregaoItemMap = new Map<string, {
+      numero_pregao?: string
+      numero_item?: number
+      descricao_tr?: string | null
+      descricao?: string | null
+      valor_unitario?: number
+      saldo_empenho?: number
+    }>()
 
     pregoes.forEach(p => {
       if (calcStatusPregao(p.data_vencimento) !== 'VENCIDO') {
@@ -453,6 +470,19 @@ export default function Planejamento() {
               if (!current || safeNum(i.valor_unitario) < current) {
                 pregaoPreco.set(i.cd_comp_master, safeNum(i.valor_unitario))
               }
+            }
+
+            // Guarda o item do pregão com preferência para quem tem saldo ativo ou tem preço
+            const existing = pregaoItemMap.get(i.cd_comp_master)
+            if (!existing || (safeNum(i.saldo_empenho) > 0 && !(existing.saldo_empenho && existing.saldo_empenho > 0))) {
+              pregaoItemMap.set(i.cd_comp_master, {
+                numero_pregao: p.numero_pregao,
+                numero_item: i.numero_item,
+                descricao_tr: i.descricao_tr,
+                descricao: i.descricao,
+                valor_unitario: safeNum(i.valor_unitario),
+                saldo_empenho: safeNum(i.saldo_empenho),
+              })
             }
           }
         })
@@ -586,6 +616,7 @@ export default function Planejamento() {
         quantidade_sugerida_reposicao,
         custo_reposicao,
         campos_corrigidos,
+        item_pregao: pregaoItemMap.get(master.cd_comp) || null,
       }
     }).filter(Boolean) as ItemBasePlanejamento[]
   }, [produtos, estoques, fornData, pregoes, pendentesData, filtros.cobertura_alvo, modificadoresMap])
@@ -1347,7 +1378,7 @@ export default function Planejamento() {
                     {open && (
                       <div className="border-t border-surface-700/60 overflow-x-auto">
                         <table className="w-full text-xs text-left border-collapse">
-                          <thead>
+                          <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
                             <tr className="bg-surface-800/80 text-surface-400 uppercase text-[9px] tracking-wider border-b border-surface-700/50">
                               <th className="py-2 px-3 font-semibold">MASTER</th>
                               <th className="py-2 px-3 font-semibold">Nome</th>
@@ -1369,10 +1400,34 @@ export default function Planejamento() {
                                    {i.cd_comp_master}
                                    {C.length > 0 && <span className="ml-1 inline-flex"><Sparkles size={9} className="text-amber-400" /></span>}
                                  </td>
-                                 <td className={cn('py-2 px-3 max-w-[160px] truncate', cc('nomenclatura') && celCorrigido)}
-                                   title={cc('nomenclatura') ? 'DADOS CORRIGIDOS: ' + i.nomenclatura : i.nomenclatura}>
-                                   {i.nomenclatura}
-                                 </td>
+                                  <td className={cn('py-2 px-3 max-w-[180px]', cc('nomenclatura') && celCorrigido)}>
+                                    <div className="truncate" title={cc('nomenclatura') ? 'DADOS CORRIGIDOS: ' + i.nomenclatura : i.nomenclatura}>
+                                      {i.nomenclatura}
+                                    </div>
+                                    {i.item_pregao && (
+                                      <div className="mt-0.5">
+                                        <ItemDescTooltip
+                                          titulo={
+                                            <span className="inline-flex items-center gap-1 text-[9px] text-emerald-400 font-semibold cursor-help truncate max-w-[170px]">
+                                              <span className="px-1 py-0.2 bg-emerald-950/80 border border-emerald-700/60 rounded text-[8px] font-mono shrink-0">
+                                                {i.item_pregao.numero_pregao ? `Pregão ${i.item_pregao.numero_pregao}` : 'Pregão'}
+                                              </span>
+                                              <span className="truncate text-surface-300 font-medium">
+                                                {extrairModeloMarcaRef(i.item_pregao.descricao_tr)}
+                                              </span>
+                                            </span>
+                                          }
+                                          descricaoCompleta={
+                                            <ResumoTRTooltipContent
+                                              texto={i.item_pregao.descricao_tr || i.item_pregao.descricao || i.nomenclatura}
+                                              tituloItem={`Pregão ${i.item_pregao.numero_pregao || ''} (Item ${i.item_pregao.numero_item || ''}) — ${extrairModeloMarcaRef(i.item_pregao.descricao_tr)}`}
+                                              numeroItem={i.item_pregao.numero_item}
+                                            />
+                                          }
+                                        />
+                                      </div>
+                                    )}
+                                  </td>
                                  <td className={cn('py-2 px-3 text-right whitespace-nowrap', cc('estoque') && celCorrigido)}
                                    title={cc('estoque') ? 'DADOS CORRIGIDOS' : undefined}>
                                    <span className="font-semibold text-surface-200">{i.suprimento_disponivel}</span>
@@ -1393,7 +1448,26 @@ export default function Planejamento() {
                                  <td className={cn('py-2 px-3 text-right whitespace-nowrap', cc('preco_unitario') && celCorrigido)}
                                    title={cc('preco_unitario') ? 'DADOS CORRIGIDOS' : undefined}>
                                    <span className="font-mono text-surface-200">{formatCurrency(i.preco_unitario)}</span>
-                                   {i.origem_preco === 'PREGAO' && <span className="block text-[7px] font-bold text-emerald-400 uppercase">PREGÃO</span>}
+                                    {i.origem_preco === 'PREGAO' && (
+                                      i.item_pregao ? (
+                                        <ItemDescTooltip
+                                          titulo={
+                                            <span className="block text-[7px] font-bold text-emerald-400 uppercase cursor-help hover:text-emerald-300">
+                                              PREGÃO {i.item_pregao.numero_pregao ? `(${i.item_pregao.numero_pregao})` : ''}
+                                            </span>
+                                          }
+                                          descricaoCompleta={
+                                            <ResumoTRTooltipContent
+                                              texto={i.item_pregao.descricao_tr || i.item_pregao.descricao || i.nomenclatura}
+                                              tituloItem={`Pregão ${i.item_pregao.numero_pregao || ''} (Item ${i.item_pregao.numero_item || ''}) — ${extrairModeloMarcaRef(i.item_pregao.descricao_tr)}`}
+                                              numeroItem={i.item_pregao.numero_item}
+                                            />
+                                          }
+                                        />
+                                      ) : (
+                                        <span className="block text-[7px] font-bold text-emerald-400 uppercase">PREGÃO</span>
+                                      )
+                                    )}
                                    {i.origem_preco === 'ESTIMADO' && <span className="block text-[7px] font-bold text-amber-400 uppercase">CADASTRO</span>}
                                    {i.origem_preco === 'CORRIGIDO' && <span className="block text-[7px] font-bold text-amber-300 uppercase flex items-center gap-0.5"><Sparkles size={7}/>CORRIGIDO</span>}
                                    {i.origem_preco === 'NENHUM' && <span className="block text-[7px] text-surface-500 uppercase">SEM PREÇO</span>}
@@ -1544,7 +1618,7 @@ export default function Planejamento() {
                     {open && (
                       <div className="bg-surface-900/40 overflow-x-auto">
                         <table className="w-full text-xs text-left border-collapse">
-                          <thead>
+                          <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
                             <tr className="bg-surface-800 text-surface-400 uppercase text-[9px] tracking-wider border-b border-surface-700/60">
                               <th className="py-2.5 px-4 font-semibold">MASTER</th>
                               <th className="py-2.5 px-3 font-semibold">Nomenclatura</th>
@@ -1571,9 +1645,33 @@ export default function Planejamento() {
                                   {i.cd_comp_master}
                                   {C.length > 0 && <span className="ml-1 inline-flex"><Sparkles size={9} className="text-amber-400" /></span>}
                                 </td>
-                                <td className={cn('py-2.5 px-3 max-w-xs truncate', cc('nomenclatura') && cel)}
-                                  title={cc('nomenclatura') ? 'DADOS CORRIGIDOS: ' + i.nomenclatura : i.nomenclatura}>
-                                  {i.nomenclatura}
+                                <td className={cn('py-2.5 px-3 max-w-xs', cc('nomenclatura') && cel)}>
+                                  <div className="truncate" title={cc('nomenclatura') ? 'DADOS CORRIGIDOS: ' + i.nomenclatura : i.nomenclatura}>
+                                    {i.nomenclatura}
+                                  </div>
+                                  {i.item_pregao && (
+                                    <div className="mt-0.5">
+                                      <ItemDescTooltip
+                                        titulo={
+                                          <span className="inline-flex items-center gap-1 text-[9px] text-emerald-400 font-semibold cursor-help truncate max-w-xs">
+                                            <span className="px-1 py-0.2 bg-emerald-950/80 border border-emerald-700/60 rounded text-[8px] font-mono shrink-0">
+                                              {i.item_pregao.numero_pregao ? `Pregão ${i.item_pregao.numero_pregao}` : 'Pregão'}
+                                            </span>
+                                            <span className="truncate text-surface-300 font-medium">
+                                              {extrairModeloMarcaRef(i.item_pregao.descricao_tr)}
+                                            </span>
+                                          </span>
+                                        }
+                                        descricaoCompleta={
+                                          <ResumoTRTooltipContent
+                                            texto={i.item_pregao.descricao_tr || i.item_pregao.descricao || i.nomenclatura}
+                                            tituloItem={`Pregão ${i.item_pregao.numero_pregao || ''} (Item ${i.item_pregao.numero_item || ''}) — ${extrairModeloMarcaRef(i.item_pregao.descricao_tr)}`}
+                                            numeroItem={i.item_pregao.numero_item}
+                                          />
+                                        }
+                                      />
+                                    </div>
+                                  )}
                                 </td>
                                 <td className={cn('py-2.5 px-3 text-right text-surface-300 font-mono', cc('media_anual') && cel)}
                                   title={cc('media_anual') ? 'DADOS CORRIGIDOS' : undefined}>
@@ -1586,13 +1684,51 @@ export default function Planejamento() {
                                   </span>
                                   <span className="text-[8px] text-surface-400 block">
                                     {abaterSuprimento ? `${i.suprimento_disponivel} est` : '0 est'}
-                                    {filtros.pregao_ativo === 'CONSIDERAR' ? ` + ${i.saldo_pregoes} prg` : ''}
+                                    {filtros.pregao_ativo === 'CONSIDERAR' && i.saldo_pregoes > 0 ? (
+                                      i.item_pregao ? (
+                                        <ItemDescTooltip
+                                          titulo={
+                                            <span className="text-emerald-400 cursor-help font-medium hover:underline inline-block">
+                                              {` + ${i.saldo_pregoes} prg`}
+                                            </span>
+                                          }
+                                          descricaoCompleta={
+                                            <ResumoTRTooltipContent
+                                              texto={i.item_pregao.descricao_tr || i.item_pregao.descricao || i.nomenclatura}
+                                              tituloItem={`Pregão ${i.item_pregao.numero_pregao || ''} (Item ${i.item_pregao.numero_item || ''}) — ${extrairModeloMarcaRef(i.item_pregao.descricao_tr)}`}
+                                              numeroItem={i.item_pregao.numero_item}
+                                            />
+                                          }
+                                        />
+                                      ) : (
+                                        ` + ${i.saldo_pregoes} prg`
+                                      )
+                                    ) : ''}
                                   </span>
                                 </td>
                                 <td className={cn('py-2.5 px-3 text-right whitespace-nowrap', cc('preco_unitario') && cel)}
                                   title={cc('preco_unitario') ? 'DADOS CORRIGIDOS' : undefined}>
                                   <span className="font-mono text-surface-200">{formatCurrency(i.preco_unitario)}</span>
-                                  {i.origem_preco === 'PREGAO' && <span className="block mt-0.5 text-[8px] font-bold uppercase tracking-wider text-emerald-400">PREGÃO</span>}
+                                  {i.origem_preco === 'PREGAO' && (
+                                    i.item_pregao ? (
+                                      <ItemDescTooltip
+                                        titulo={
+                                          <span className="block mt-0.5 text-[8px] font-bold uppercase tracking-wider text-emerald-400 cursor-help hover:text-emerald-300">
+                                            PREGÃO {i.item_pregao.numero_pregao ? `(${i.item_pregao.numero_pregao})` : ''}
+                                          </span>
+                                        }
+                                        descricaoCompleta={
+                                          <ResumoTRTooltipContent
+                                            texto={i.item_pregao.descricao_tr || i.item_pregao.descricao || i.nomenclatura}
+                                            tituloItem={`Pregão ${i.item_pregao.numero_pregao || ''} (Item ${i.item_pregao.numero_item || ''}) — ${extrairModeloMarcaRef(i.item_pregao.descricao_tr)}`}
+                                            numeroItem={i.item_pregao.numero_item}
+                                          />
+                                        }
+                                      />
+                                    ) : (
+                                      <span className="block mt-0.5 text-[8px] font-bold uppercase tracking-wider text-emerald-400">PREGÃO</span>
+                                    )
+                                  )}
                                   {i.origem_preco === 'ESTIMADO' && <span className="block mt-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-400">CADASTRO</span>}
                                   {i.origem_preco === 'CORRIGIDO' && <span className="block mt-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-0.5"><Sparkles size={7}/>CORRIGIDO</span>}
                                   {i.origem_preco === 'NENHUM' && <span className="block mt-0.5 text-[8px] text-surface-500 uppercase">SEM PREÇO</span>}

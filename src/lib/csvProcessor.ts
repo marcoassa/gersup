@@ -114,6 +114,7 @@ export interface ResultadoFornecimentos {
   totalLinhasCavex: number
   totalLinhasUltimos5Anos: number
   totalLinhasMercadoInterno: number
+  totalLinhasIgnoradasPorSolicitante: number
   fornecimentosFiltrados: FornecimentoProcessado[]
   mediasPorMaster: MediasMaster[]
 }
@@ -384,6 +385,55 @@ export function processarEstoque(
   }
 }
 
+// ─── Regras de Descarte / Solicitantes Ignorados ──────────────────────────────
+
+/**
+ * Termos / palavras-chave no Solicitante que indicam baixa, descarte, auditoria ou descaracterização
+ * que não devem ser contabilizados como fornecimento/consumo operacional.
+ */
+export const PALAVRAS_CHAVE_SOLICITANTE_IGNORADO = [
+  'descart',      // Descarte
+  'audit',        // Auditoria
+  'sucat',        // Sucata
+  'descaract',    // Comissão Descaract Material
+]
+
+/**
+ * Solicitantes específicos adicionais que não representam consumo de manutenção e devem ser ignorados.
+ */
+export const SOLICITANTES_ESPECIFICOS_IGNORADOS = [
+  'BMS - Cia Sup Trnsp Av (Estoque)',
+  'BMS - Recebimento Técnico',
+  'BMS - Triagem',
+  'BMS - Modernizacao',
+  'AIRBUS - TROCA STANDARD',
+  'B Av T - RANCHO',
+]
+
+/**
+ * Verifica se um solicitante deve ser ignorado na importação e nos cálculos de consumo.
+ */
+export function isSolicitanteIgnorado(solicitante: unknown): boolean {
+  if (!solicitante) return false
+  let raw = String(solicitante).trim()
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    raw = raw.slice(1, -1).trim()
+  }
+  const norm = normalize(raw)
+
+  // 1. Checagem por palavras-chave
+  for (const termo of PALAVRAS_CHAVE_SOLICITANTE_IGNORADO) {
+    if (norm.includes(normalize(termo))) return true
+  }
+
+  // 2. Checagem por solicitante específico
+  for (const esp of SOLICITANTES_ESPECIFICOS_IGNORADOS) {
+    if (norm === normalize(esp)) return true
+  }
+
+  return false
+}
+
 // ─── ETAPA 3: Fornecimentos ────────────────────────────────────────────────────
 
 export function processarFornecimentos(
@@ -426,8 +476,18 @@ export function processarFornecimentos(
   // 3. Filtrar últimos 5 anos
   const ultimos5Anos = mapeados.filter(f => f.data && f.data >= dataLimite && f.ano > 0)
 
-  // 4. Filtrar Mercado Interno e quantidade > 0
-  const filtrados = ultimos5Anos.filter(f =>
+  // 4. Filtrar solicitantes não-operacionais (descarte, auditoria, estoque, etc.)
+  let totalLinhasIgnoradasPorSolicitante = 0
+  const semSolicitantesIgnorados = ultimos5Anos.filter(f => {
+    if (isSolicitanteIgnorado(f.solicitante)) {
+      totalLinhasIgnoradasPorSolicitante++
+      return false
+    }
+    return true
+  })
+
+  // 5. Filtrar Mercado Interno e quantidade > 0
+  const filtrados = semSolicitantesIgnorados.filter(f =>
     mapaComponenteParaMaster.has(f.cdCompOriginal) && f.qtd > 0
   )
 
@@ -483,6 +543,7 @@ export function processarFornecimentos(
     totalLinhasCavex: cavexRows.length,
     totalLinhasUltimos5Anos: ultimos5Anos.length,
     totalLinhasMercadoInterno: filtrados.length,
+    totalLinhasIgnoradasPorSolicitante,
     fornecimentosFiltrados: filtrados,
     mediasPorMaster,
   }

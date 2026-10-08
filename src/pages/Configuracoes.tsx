@@ -487,7 +487,7 @@ export default function Configuracoes() {
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
                 <tr className="bg-red-950/20 text-surface-400 uppercase text-[9px] tracking-wider border-b border-red-900/30">
                   <th className="py-2.5 px-4 text-left font-semibold">MASTER</th>
                   <th className="py-2.5 px-3 text-left font-semibold hidden md:table-cell">Motivo</th>
@@ -558,7 +558,7 @@ export default function Configuracoes() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
                 <tr className="bg-surface-800/80 text-surface-400 uppercase text-[9px] tracking-wider border-b border-surface-700/50">
                   <th className="py-2.5 px-4 text-left font-semibold">MASTER</th>
                   <th className="py-2.5 px-3 text-left font-semibold">Campos Corrigidos</th>

@@ -67,11 +67,17 @@ export function calcStatusItem(item: ItemPregao): StatusItem {
 // ─── Pregão Card ──────────────────────────────────────────────────────────────
 
 export function enrichPregao(pregao: Pregao): PregaoCard {
-  const valorTotal = safeNum(pregao.valor_total)
+  const itens = pregao.itens ?? []
+  let valorTotal = safeNum(pregao.valor_total)
+  // Fallback: se valor_total estiver 0 mas houver itens, calcula a partir dos itens homologados
+  if (valorTotal === 0 && itens.length > 0) {
+    valorTotal = itens
+      .filter(i => !i.status_pncp || ['Homologado', 'Adjudicado'].includes(i.status_pncp))
+      .reduce((acc, i) => acc + (safeNum(i.quantidade_licitada) * safeNum(i.valor_unitario)), 0)
+  }
   const valorEmpenhado = safeNum(pregao.valor_empenhado)
   const saldoDisponivel = valorTotal - valorEmpenhado
   const percentualEmpenhado = safeDivide(valorEmpenhado * 100, valorTotal)
-  const itens = pregao.itens ?? []
   const itensEnriquecidos = itens.map(enrichItem)
   const itensCriticos = itensEnriquecidos.filter(i => i.status_item === 'CRITICO').length
   const itensEsgotados = itensEnriquecidos.filter(i => i.status_item === 'ESGOTADO').length
@@ -305,7 +311,9 @@ export function getSiTitulo(si: string | null | undefined): string {
  */
 export function extrairTituloItem(descricao: string | null | undefined): string {
   if (!descricao) return '—'
-  const d = descricao.trim()
+  let d = descricao.trim()
+  // Limpa prefixos de data de cabeçalho OCR/PDF (ex: "maio/2023 ")
+  d = d.replace(/^(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\/\d{4}\s+/i, '')
 
   // 1. Procura pelo separador ", com " (padrão principal do PNCP)
   //    Ex: "TRINCHA, TRINCHA DE 1\", com as seguintes características:..."
@@ -339,3 +347,188 @@ export function extrairTituloItem(descricao: string | null | undefined): string 
   // 3. Sem vírgula alguma — trunca em 80 chars
   return d.length > 80 ? d.slice(0, 80) + '…' : d
 }
+
+export interface ProdutoReferenciaTR {
+  titulo: string
+  ref: string | null
+  marca: string | null
+}
+
+/**
+ * Extrai o produto de referência e detalhes contidos no Termo de Referência (TR).
+ * Retorna o título conciso do item, a referência (código/modelo/produto referência) e a marca/fabricante.
+ */
+export function extrairProdutoReferenciaTr(descricaoTr: string | null | undefined): ProdutoReferenciaTR | null {
+  if (!descricaoTr || !descricaoTr.trim()) return null
+
+  // 1. Procura por Referência / Produto Referência
+  const mRef = descricaoTr.match(/(?:^|\n|[\s;.-])(?:⭐\s*)?(?:PRODUTO\s+)?Refer[eê]ncia\s*:\s*([^;\n]+)/i)
+  let ref = mRef ? mRef[1].trim() : null
+  if (ref) {
+    ref = ref.replace(/\s*(?:Marca|Fabricante|Prazo|Embalagem).*$/i, '').trim()
+    ref = ref.replace(/^[-\s]+/, '').trim()
+  }
+
+  // 2. Procura por Marca / Fabricante
+  const mMarca = descricaoTr.match(/(?:^|\n|[\s;.-])(?:Marca|Fabricante|Marca\/Fabricante)\s*:\s*([^;\n]+)/i)
+  let marca = mMarca ? mMarca[1].trim() : null
+  if (marca) {
+    marca = marca.replace(/\s*(?:Prazo|Validade|Embalagem|Referência).*$/i, '').trim()
+    marca = marca.replace(/^[-\s]+/, '').trim()
+  }
+
+  // 3. Título do item no TR
+  const titulo = extrairTituloItem(descricaoTr)
+
+  return {
+    titulo,
+    ref,
+    marca,
+  }
+}
+
+/**
+ * Extrai APENAS o modelo e marca de referência contidos no Termo de Referência.
+ * Se houver modelo (referência) e marca, retorna ambos de forma concisa (ex: "Bpto 2197 — Air BP" ou "LOCTITE 242").
+ * Se não houver TR extraído, retorna "SEM TERMO DE REFERENCIA".
+ */
+export function extrairModeloMarcaRef(descricaoTr: string | null | undefined): string {
+  if (!descricaoTr || !descricaoTr.trim()) return 'SEM TERMO DE REFERENCIA'
+
+  const tr = descricaoTr.trim()
+
+  // 1. Procura por Referência / Produto Referência
+  const mRef = tr.match(/(?:^|\n|[\s;.-])(?:⭐\s*)?(?:PRODUTO\s+)?Refer[eê]ncia\s*:\s*([^;\n]+)/i)
+  let ref = mRef ? mRef[1].trim() : null
+  if (ref) {
+    ref = ref.replace(/\s*(?:Marca|Fabricante|Prazo|Embalagem|IDH).*$/i, '').trim()
+    ref = ref.replace(/^[-\s.:]+/, '').trim()
+  }
+
+  // 2. Procura por Marca / Fabricante
+  const mMarca = tr.match(/(?:^|\n|[\s;.-])(?:Marca|Fabricante|Marca\/Fabricante)\s*:\s*([^;\n]+)/i)
+  let marca = mMarca ? mMarca[1].trim() : null
+  if (marca) {
+    marca = marca.replace(/\s*(?:Prazo|Validade|Embalagem|Referência|IDH).*$/i, '').trim()
+    marca = marca.replace(/^[-\s.:]+/, '').trim()
+  }
+
+  // Limpa ruídos jurídicos/padrão
+  const limpaBoilerplate = (s: string) => {
+    return s
+      .replace(/\s*\(\s*(?:ou\s+)?similar(?:\s+ou\s+superior)?\s*\)/gi, '')
+      .replace(/\s*\(\s*EXCLUSIVAMENTE\s*\)/gi, '')
+      .replace(/\s*\(\s*padroniza[cç][aã]o\s*\)/gi, '')
+      .replace(/\s*\(\s*conforme\s+manual[^)]*\)/gi, '')
+      .replace(/\s*;\s*$/, '')
+      .replace(/\s*\.\s*$/, '')
+      .trim()
+  }
+
+  const refLimpa = ref ? limpaBoilerplate(ref) : null
+  const marcaLimpa = marca ? limpaBoilerplate(marca) : null
+
+  if (refLimpa && marcaLimpa) {
+    if (refLimpa.toLowerCase().includes(marcaLimpa.toLowerCase())) {
+      return refLimpa
+    }
+    if (marcaLimpa.toLowerCase().includes(refLimpa.toLowerCase())) {
+      return marcaLimpa
+    }
+    return `${refLimpa} — ${marcaLimpa}`
+  }
+
+  if (refLimpa) return refLimpa
+  if (marcaLimpa) return marcaLimpa
+
+  // Fallback: se não tiver linha específica de Referência/Marca no TR, pega o título conciso do TR
+  let d = tr
+  d = d.replace(/^(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\/\d{4}\s+/i, '')
+  const matchCom = /,\s*com\s+/i.exec(d)
+  if (matchCom) {
+    return d.slice(0, matchCom.index).trim()
+  }
+  const idxVirgula = d.indexOf(',')
+  if (idxVirgula > 0) {
+    return d.slice(0, idxVirgula).trim()
+  }
+  return d.length > 60 ? d.slice(0, 60) + '…' : d
+}
+
+
+/**
+ * Extrai resumo conciso do Termo de Referência para exibição em menus flutuantes / tooltips.
+ * Mantém o início da descrição técnica, ignora os detalhes intermediários excessivos ([...])
+ * e garante a exibição do bloco final com Embalagem, Produto Referência e Marca/Fabricante.
+ */
+export function extrairResumoTR(texto: string | null | undefined): string {
+  if (!texto) return ''
+  let limpo = texto.replace(/\r\n/g, '\n').trim()
+
+  // Limpa ruídos ou cabeçalhos repetidos de OCR/PDF
+  limpo = limpo
+    .replace(/Lic\s*–?\s*Aquisições[^\n]*\n?/gi, '')
+    .replace(/ão e Inovação\n?/gi, '')
+    .replace(/^\s*de\s*$\n?/gim, '')
+
+  // Se o texto for curto (sem grandes detalhes técnicos), retorna direto
+  if (limpo.length <= 150) return limpo
+
+  // Localizar o bloco final: Embalagem, Referência, Marca, Fabricante, P/N
+  const matchFinal = limpo.search(/(?:^|\n|[\s;.-])(?:Embalagem|Refer[eê]ncia|Marca|Fabricante|Marca\/Fabricante|P\/N)\s*:/i)
+
+  // Se não encontrar nenhuma dessas palavras-chave finais, retorna o texto original
+  if (matchFinal === -1) return limpo
+
+  // 1. Início da descrição técnica
+  let inicio = ''
+  const matchCom = limpo.match(/^([\s\S]*?(?:,\s*com as seguintes[\s\S]*?caracter[ií]sticas:?|\n\n|[.;]\s*\n))/i)
+  if (matchCom && matchCom[1].length < 350) {
+    inicio = matchCom[1].trim()
+  } else {
+    const linhas = limpo.split('\n').filter(l => l.trim().length > 0)
+    inicio = linhas.slice(0, 2).join('\n')
+    if (inicio.length > 250) inicio = inicio.slice(0, 240) + '...'
+  }
+
+  let blocoFinal = limpo.slice(matchFinal).trim().replace(/^[\s;.-]+/, '')
+
+  // Destaca a linha de Referência / Produto Referência
+  blocoFinal = blocoFinal.replace(
+    /(?:^|\n)(?:⭐\s*)?(?:PRODUTO\s+)?Refer[eê]ncia\s*:\s*(.*)/i,
+    (_m, p1) => `\n⭐ PRODUTO REFERÊNCIA: ${p1.trim()}`
+  )
+
+  // Evitar duplicação se o bloco final já estiver dentro do início
+  if (blocoFinal && !inicio.toLowerCase().includes(blocoFinal.slice(0, Math.min(25, blocoFinal.length)).toLowerCase())) {
+    return `${inicio}\n\n[...]\n\n${blocoFinal}`
+  }
+
+  return limpo
+}
+
+/**
+ * Extrai o número da NC (se existir na tag [NC: ...]) e o texto limpo da observação.
+ */
+export function extrairNcDeObservacoes(obs: string | null | undefined): { numeroNc: string | null; textoLimpo: string } {
+  if (!obs) return { numeroNc: null, textoLimpo: '' }
+  const match = obs.match(/\[NC:\s*([A-Za-z0-9_-]+)\]/i)
+  if (match) {
+    const numeroNc = match[1].trim()
+    const textoLimpo = obs.replace(match[0], '').trim()
+    return { numeroNc, textoLimpo }
+  }
+  return { numeroNc: null, textoLimpo: obs.trim() }
+}
+
+/**
+ * Formata a string de observações preservando a tag [NC: ...].
+ */
+export function formatarObservacoesComNc(texto: string | null | undefined, numeroNc: string | null | undefined): string | null {
+  const limpo = (texto || '').replace(/\[NC:\s*([A-Za-z0-9_-]+)\]/gi, '').trim()
+  if (numeroNc && numeroNc.trim()) {
+    return `[NC: ${numeroNc.trim()}] ${limpo}`.trim()
+  }
+  return limpo || null
+}
+

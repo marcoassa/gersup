@@ -1,11 +1,14 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Edit2, Check, X, RefreshCw, Trash2, AlertTriangle, Loader2, Search, Box, Pencil, Printer } from 'lucide-react'
+import { ArrowLeft, Edit2, Check, X, RefreshCw, Trash2, AlertTriangle, Loader2, Search, Box, Pencil, Printer, CheckCircle2, Upload } from 'lucide-react'
 import { useQuery } from '@/hooks/useQuery'
-import { getPregaoById, updatePregao, deletePregao, updateItemPregao, getProdutosPaginado } from '@/lib/api'
-import { enrichPregao, enrichItem, formatCurrency, formatDate, formatPercent, cn, getSiTitulo, extrairTituloItem } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
+import { getPregaoById, updatePregao, deletePregao, updateItemPregao, getProdutosPaginado, atualizarEmpenhoItemPregao, recalcularSaldosPregaoDePedidos } from '@/lib/api'
+import { importarOuAtualizarPregaoPorPncp } from '@/lib/comprasGovApi'
+import { upsertPregaoPncp } from '@/lib/upsertPregao'
+import { enrichPregao, enrichItem, formatCurrency, formatDate, formatPercent, cn, getSiTitulo, extrairTituloItem, extrairModeloMarcaRef } from '@/lib/utils'
 import { LoadingSpinner, ErrorCard } from '@/components/ui/States'
-import ItemDescTooltip from '@/components/ui/ItemDescTooltip'
+import ItemDescTooltip, { ResumoTRTooltipContent } from '@/components/ui/ItemDescTooltip'
 import type { Produto } from '@/types'
 
 const ITEM_STATUS_CLASS: Record<string, string> = {
@@ -36,13 +39,31 @@ export default function PregaoDetalhes() {
 
   const [editandoObjeto, setEditandoObjeto] = useState(false)
   const [editandoValidade, setEditandoValidade] = useState(false)
+  const [editandoNup, setEditandoNup] = useState(false)
+  const [editandoNumeroPregao, setEditandoNumeroPregao] = useState(false)
   const [objetoEdit, setObjetoEdit] = useState('')
   const [validadeEdit, setValidadeEdit] = useState('')
+  const [nupEdit, setNupEdit] = useState('')
+  const [numeroPregaoEdit, setNumeroPregaoEdit] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
+  const [atualizando, setAtualizando] = useState(false)
+  const [resultadoAtualizacao, setResultadoAtualizacao] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [editandoEmpenhoItemId, setEditandoEmpenhoItemId] = useState<string | null>(null)
+  const [valorEmpenhoEdit, setValorEmpenhoEdit] = useState<string>('')
+  const [salvandoEmpenho, setSalvandoEmpenho] = useState(false)
 
-  const [searchItens, setSearchItens] = useState('')
+  const [searchItens, setSearchItens] = useState(() => {
+    return new URLSearchParams(window.location.search).get('q') || ''
+  })
+
+  useEffect(() => {
+    const qParam = new URLSearchParams(location.search).get('q')
+    if (qParam !== null && qParam !== undefined) {
+      setSearchItens(qParam)
+    }
+  }, [location.search])
 
   const card = useMemo(() => pregao ? enrichPregao(pregao) : null, [pregao])
   const itensList = useMemo(() => {
@@ -52,10 +73,15 @@ export default function PregaoDetalhes() {
 
   const itensFiltrados = useMemo(() => {
     if (!searchItens.trim()) return itensList
-    const q = searchItens.toLowerCase()
+    const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const q = normalize(searchItens.trim())
     return itensList.filter(item =>
-      item.descricao.toLowerCase().includes(q) ||
-      String(item.numero_item).includes(q)
+      (item.descricao && normalize(item.descricao).includes(q)) ||
+      (item.descricao_tr && normalize(item.descricao_tr).includes(q)) ||
+      (item.cd_comp_master && normalize(item.cd_comp_master).includes(q)) ||
+      (item.cm && normalize(item.cm).includes(q)) ||
+      (!item.descricao_tr && normalize('SEM TERMO DE REFERENCIA').includes(q)) ||
+      String(item.numero_item) === q
     )
   }, [itensList, searchItens])
 
@@ -122,8 +148,12 @@ export default function PregaoDetalhes() {
   const salvarObjeto = async () => {
     if (!id) return
     setSalvando(true)
-    await updatePregao(id, { objeto: objetoEdit })
+    const { error } = await updatePregao(id, { objeto: objetoEdit })
     setSalvando(false)
+    if (error) {
+      alert(`Erro ao salvar objeto: ${error}`)
+      return
+    }
     setEditandoObjeto(false)
     refetch()
   }
@@ -131,9 +161,41 @@ export default function PregaoDetalhes() {
   const salvarValidade = async () => {
     if (!id) return
     setSalvando(true)
-    await updatePregao(id, { data_vencimento: validadeEdit })
+    const { error } = await updatePregao(id, { data_vencimento: validadeEdit })
     setSalvando(false)
+    if (error) {
+      alert(`Erro ao salvar validade: ${error}`)
+      return
+    }
     setEditandoValidade(false)
+    refetch()
+  }
+
+  const salvarNup = async () => {
+    if (!id) return
+    setSalvando(true)
+    const { error } = await updatePregao(id, { nup: nupEdit.trim() || null })
+    setSalvando(false)
+    if (error) {
+      alert(`Erro ao salvar NUP: ${error}`)
+      return
+    }
+    setEditandoNup(false)
+    refetch()
+  }
+
+  const salvarNumeroPregao = async () => {
+    if (!id) return
+    const valor = numeroPregaoEdit.trim()
+    if (!valor) { setEditandoNumeroPregao(false); return }
+    setSalvando(true)
+    const { error } = await updatePregao(id, { numero_pregao: valor })
+    setSalvando(false)
+    if (error) {
+      alert(`Erro ao salvar número do pregão: ${error}`)
+      return
+    }
+    setEditandoNumeroPregao(false)
     refetch()
   }
 
@@ -149,6 +211,94 @@ export default function PregaoDetalhes() {
     navigate('/pregoes')
   }
 
+  const [extraindoTermo, setExtraindoTermo] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleUploadPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !pregao) return;
+
+    setExtraindoTermo(true);
+    setResultadoAtualizacao(null);
+    try {
+      const formData = new FormData();
+      formData.append('pdf', file);
+
+      const res = await fetch('http://localhost:3001/api/parse-pdf', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Erro na extração');
+      }
+
+      let updatedCount = 0;
+      for (const item of data.items) {
+        const itemNum = parseInt(item.Item, 10);
+        if (isNaN(itemNum)) continue;
+        
+        await supabase
+          .from('itens_pregao')
+          .update({ descricao_tr: item["Descrição Completa"] })
+          .eq('pregao_id', pregao.id)
+          .eq('numero_item', itemNum);
+        
+        updatedCount++;
+      }
+      
+      setResultadoAtualizacao({ ok: true, msg: `${updatedCount} itens atualizados com sucesso!` });
+      refetch();
+    } catch (err: any) {
+      setResultadoAtualizacao({ ok: false, msg: err.message || 'Erro ao extrair termo' });
+    } finally {
+      setExtraindoTermo(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleAtualizarDaApi = async () => {
+    if (!pregao?.id_pncp_compra) return
+    setAtualizando(true)
+    setResultadoAtualizacao(null)
+    try {
+      const dados = await importarOuAtualizarPregaoPorPncp(pregao.id_pncp_compra)
+      const { error } = await upsertPregaoPncp(dados)
+      if (error) throw new Error(error)
+      if (pregao.id) {
+        await recalcularSaldosPregaoDePedidos(pregao.id)
+      }
+      setResultadoAtualizacao({ ok: true, msg: 'Atualizado com sucesso' })
+      refetch()
+    } catch (err) {
+      setResultadoAtualizacao({ ok: false, msg: (err as Error).message || 'Erro ao atualizar' })
+    } finally {
+      setAtualizando(false)
+      setTimeout(() => setResultadoAtualizacao(null), 4000)
+    }
+  }
+
+  const iniciarEdicaoEmpenho = (item: any) => {
+    setEditandoEmpenhoItemId(item.id)
+    setValorEmpenhoEdit(String(item.quantidade_empenhada ?? 0))
+  }
+
+  const salvarEmpenhoItem = async (itemId: string) => {
+    setSalvandoEmpenho(true)
+    try {
+      const num = Math.max(0, parseFloat(valorEmpenhoEdit.replace(',', '.')) || 0)
+      const { error } = await atualizarEmpenhoItemPregao(itemId, num)
+      if (error) throw new Error(error)
+      setEditandoEmpenhoItemId(null)
+      refetch()
+    } catch (err: any) {
+      alert(err.message || 'Erro ao salvar empenho')
+    } finally {
+      setSalvandoEmpenho(false)
+    }
+  }
+
   const handlePrint = () => {
     if (!card) return
     const win = window.open('', '_blank', 'width=900,height=700')
@@ -161,19 +311,30 @@ export default function PregaoDetalhes() {
       return '#6b7280'
     }
 
-    const rows = itensList.map(item => `
+    const rows = itensList.map(item => {
+      let descHtml = ''
+      if (item.descricao_tr) {
+        const modeloMarca = extrairModeloMarcaRef(item.descricao_tr)
+        descHtml = `<span>${modeloMarca}</span>`
+      } else {
+        descHtml = '<span style="color:#b45309;font-weight:700;font-size:9px;">SEM TERMO DE REFERENCIA</span>'
+      }
+
+      return `
       <tr>
         <td>${item.numero_item}</td>
-        <td class="desc">${item.descricao}</td>
+        <td class="desc">${descHtml}</td>
         <td>${item.unidade}</td>
         <td class="num">${Number(item.quantidade_licitada).toLocaleString('pt-BR')}</td>
         <td class="num">${Number(item.quantidade_empenhada).toLocaleString('pt-BR')}</td>
         <td class="num" style="color:${item.saldo_empenho <= 0 ? '#ef4444' : item.percentual_saldo < 10 ? '#f59e0b' : '#10b981'}">${Number(item.saldo_empenho).toLocaleString('pt-BR')}</td>
         <td class="num">${formatCurrency(Number(item.valor_unitario))}</td>
         <td class="mono">${item.cd_comp_master ?? '—'}</td>
+        <td class="mono">${item.cm || item.produto?.cm || '—'}</td>
         <td class="center"><span class="badge" style="color:${statusColor(item.status_item)};border-color:${statusColor(item.status_item)}40">${item.status_item}</span></td>
       </tr>
-    `).join('')
+    `
+    }).join('')
 
     const now = new Date().toLocaleString('pt-BR')
 
@@ -239,12 +400,12 @@ export default function PregaoDetalhes() {
 
   <div style="font-size:10px;font-weight:600;color:#374151;margin-bottom:8px">Itens do Pregão (${itensList.length})</div>
   <table>
-    <thead>
+    <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
       <tr>
         <th>Nº</th><th>Descrição</th><th>Un.</th>
         <th class="num">Licitado</th><th class="num">Empenhado</th>
         <th class="num">Saldo</th><th class="num">Vl. Unit.</th>
-        <th>MASTER</th><th class="center">Status</th>
+        <th>MASTER</th><th>CM</th><th class="center">Status</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -275,16 +436,71 @@ export default function PregaoDetalhes() {
       <div className="flex items-center gap-3">
         <button className="btn-secondary !px-2 !py-2" onClick={() => navigate('/pregoes')}><ArrowLeft size={16} /></button>
         <div>
-          <h2 className="font-bold text-surface-50">{card.numero_pregao}</h2>
+          {editandoNumeroPregao ? (
+            <div className="flex items-center gap-1.5">
+              <input
+                className="input font-bold text-surface-50 text-base !py-1 !px-2 w-44"
+                value={numeroPregaoEdit}
+                onChange={e => setNumeroPregaoEdit(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') salvarNumeroPregao(); if (e.key === 'Escape') setEditandoNumeroPregao(false) }}
+                placeholder="Ex: 90016/2026"
+                autoFocus
+              />
+              <button className="btn-primary !px-2 !py-1" onClick={salvarNumeroPregao} disabled={salvando}><Check size={12} /></button>
+              <button className="btn-secondary !px-2 !py-1" onClick={() => setEditandoNumeroPregao(false)}><X size={12} /></button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 group">
+              <h2 className="font-bold text-surface-50">{card.numero_pregao}</h2>
+              <button
+                className="text-surface-600 hover:text-surface-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => { setNumeroPregaoEdit(card.numero_pregao); setEditandoNumeroPregao(true) }}
+                title="Editar número do pregão"
+              >
+                <Pencil size={13} />
+              </button>
+            </div>
+          )}
           <p className="text-xs text-surface-400">Detalhes do Pregão</p>
         </div>
         <div className="flex gap-2 ml-auto">
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleUploadPdf} 
+            accept="application/pdf" 
+            className="hidden" 
+          />
+          <button 
+            className="btn-secondary !py-1.5 !px-3 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10" 
+            onClick={() => fileInputRef.current?.click()} 
+            disabled={extraindoTermo} 
+            title="Extrair descrições do Termo de Referência em PDF"
+          >
+            {extraindoTermo
+              ? <><Loader2 size={13} className="animate-spin" /> Extraindo...</>
+              : <><Upload size={13} /> Extrair TR (PDF)</>}
+          </button>
+          
           <button className="btn-secondary text-red-400 border-red-500/30 hover:bg-red-500/10 !py-1.5 !px-3" onClick={() => setModalExcluirAberto(true)}>
             <Trash2 size={13} /> Excluir
           </button>
-          <button className="btn-secondary !py-1.5 !px-3" onClick={refetch}>
-            <RefreshCw size={13} /> Atualizar
+          <button className="btn-secondary !py-1.5 !px-3" onClick={handleAtualizarDaApi} disabled={atualizando} title="Re-importar dados do PNCP">
+            {atualizando
+              ? <><Loader2 size={13} className="animate-spin" /> Atualizando...</>
+              : <><RefreshCw size={13} /> Atualizar</>}
           </button>
+          {resultadoAtualizacao && (
+            <span className={cn(
+              'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border animate-fade-in',
+              resultadoAtualizacao.ok
+                ? 'bg-emerald-900/40 text-emerald-300 border-emerald-500/30'
+                : 'bg-red-900/40 text-red-300 border-red-500/30'
+            )}>
+              {resultadoAtualizacao.ok ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+              {resultadoAtualizacao.msg}
+            </span>
+          )}
           <button className="btn-secondary !py-1.5 !px-3" onClick={handlePrint} title="Imprimir relatório do pregão">
             <Printer size={13} /> Imprimir
           </button>
@@ -313,8 +529,8 @@ export default function PregaoDetalhes() {
         </div>
       </div>
 
-      {/* Objeto editável */}
-      <div className="card">
+      {/* Objeto editável + NUP */}
+      <div className="card space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1">
             <p className="text-xs text-surface-400 mb-1">Objeto / Descrição Geral</p>
@@ -334,7 +550,48 @@ export default function PregaoDetalhes() {
             </button>
           )}
         </div>
-        {card.observacoes && <p className="text-xs text-surface-400 mt-2 italic">{card.observacoes}</p>}
+
+        {/* NUP */}
+        <div className="flex items-center gap-2 pt-2 border-t border-surface-700/40">
+          <div className="flex-1">
+            <p className="text-xs text-surface-400 mb-1">NUP — Número Único de Processo</p>
+            {editandoNup ? (
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1 font-mono text-sm"
+                  placeholder="Ex: 65081.000123/2024-01"
+                  value={nupEdit}
+                  onChange={e => setNupEdit(e.target.value)}
+                  autoFocus
+                />
+                <button className="btn-primary" onClick={salvarNup} disabled={salvando}>{salvando ? '...' : <Check size={14} />}</button>
+                <button className="btn-secondary" onClick={() => setEditandoNup(false)}><X size={14} /></button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className={card.nup ? 'text-sm font-mono text-surface-100' : 'text-sm text-surface-500 italic'}>
+                  {card.nup ?? 'Não informado'}
+                </span>
+                {!card.nup && (
+                  <span className="text-[10px] bg-amber-900/30 text-amber-300 border border-amber-700/30 px-1.5 py-0.5 rounded">
+                    Preencha manualmente ou reimporte via PNCP
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          {!editandoNup && (
+            <button
+              className="btn-secondary !px-2 !py-1 shrink-0"
+              title="Editar NUP"
+              onClick={() => { setNupEdit(card.nup ?? ''); setEditandoNup(true) }}
+            >
+              <Edit2 size={14} />
+            </button>
+          )}
+        </div>
+
+        {card.observacoes && <p className="text-xs text-surface-400 italic">{card.observacoes}</p>}
       </div>
 
       {/* Tabela de itens */}
@@ -346,11 +603,16 @@ export default function PregaoDetalhes() {
               ? `${itensFiltrados.length} de ${itensList.length} item(s)`
               : `${itensList.length} item(s)`}
           </span>
+          {itensList.length > 0 && itensList.every(i => !i.descricao_tr) && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+              SEM TERMO DE REFERENCIA
+            </span>
+          )}
           <div className="relative ml-auto">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-400" />
             <input
               className="input pl-8 py-1 text-xs w-56"
-              placeholder="Buscar na descrição completa..."
+              placeholder="Buscar item ou CM..."
               value={searchItens}
               onChange={e => setSearchItens(e.target.value)}
             />
@@ -358,12 +620,12 @@ export default function PregaoDetalhes() {
         </div>
         <div className="overflow-x-auto">
           <table className="table-base">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
               <tr>
                 <th>Nº</th><th>Descrição</th><th>Un.</th>
                 <th className="text-right">Licitado</th><th className="text-right">Empenhado</th>
                 <th className="text-right">Saldo</th><th className="text-right">Vl. Unit.</th>
-                <th>MASTER</th><th className="text-center">Status</th>
+                <th>MASTER</th><th>CM</th><th className="text-center">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -371,14 +633,98 @@ export default function PregaoDetalhes() {
                 <tr key={item.id} id={`item-${item.numero_item}`}>
                   <td className="font-mono text-xs">{item.numero_item}</td>
                   <td className="max-w-xs text-xs">
-                    <ItemDescTooltip
-                      titulo={extrairTituloItem(item.descricao)}
-                      descricaoCompleta={item.descricao}
-                    />
+                    {item.descricao_tr ? (() => {
+                      const modeloMarca = extrairModeloMarcaRef(item.descricao_tr)
+                      return (
+                        <ItemDescTooltip
+                          titulo={
+                            <span className="text-surface-100 font-medium leading-snug">
+                              {modeloMarca}
+                            </span>
+                          }
+                          descricaoCompleta={
+                            <ResumoTRTooltipContent
+                              texto={item.descricao_tr}
+                              tituloItem={`Item ${item.numero_item} — ${modeloMarca}`}
+                              numeroItem={item.numero_item}
+                            />
+                          }
+                        />
+                      )
+                    })() : (
+                      <ItemDescTooltip
+                        titulo={
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            SEM TERMO DE REFERENCIA
+                          </span>
+                        }
+                        descricaoCompleta={
+                          <div className="space-y-1.5 font-sans text-left">
+                            <div className="text-[10px] font-bold tracking-wider text-amber-400 uppercase pb-1 border-b border-surface-700/60 flex items-center justify-between">
+                              <span>Sem Termo de Referência</span>
+                              <span className="text-[9px] text-surface-400 font-normal">Item {item.numero_item}</span>
+                            </div>
+                            <div className="text-surface-300 text-xs leading-relaxed">
+                              {item.descricao || 'Item sem descrição técnica disponível.'}
+                            </div>
+                            <div className="text-[10px] text-surface-400 italic pt-1 border-t border-surface-800">
+                              Utilize o botão "Extrair TR (PDF)" no topo para carregar o Termo de Referência deste pregão.
+                            </div>
+                          </div>
+                        }
+                      />
+                    )}
                   </td>
                   <td className="text-xs">{item.unidade}</td>
-                  <td className="text-right text-xs">{Number(item.quantidade_licitada).toLocaleString('pt-BR')}</td>
-                  <td className="text-right text-xs">{Number(item.quantidade_empenhada).toLocaleString('pt-BR')}</td>
+                  <td className="text-right text-xs font-mono text-surface-300">
+                    {Number(item.quantidade_licitada).toLocaleString('pt-BR')}
+                  </td>
+                  <td className="text-right text-xs">
+                    {editandoEmpenhoItemId === item.id ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          max={item.quantidade_licitada}
+                          className="input !py-0.5 !px-1 text-xs w-20 text-right font-mono"
+                          value={valorEmpenhoEdit}
+                          onChange={e => setValorEmpenhoEdit(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') salvarEmpenhoItem(item.id)
+                            if (e.key === 'Escape') setEditandoEmpenhoItemId(null)
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          className="btn-primary !p-1 text-xs"
+                          onClick={() => salvarEmpenhoItem(item.id)}
+                          disabled={salvandoEmpenho}
+                          title="Salvar quantidade empenhada"
+                        >
+                          <Check size={12} />
+                        </button>
+                        <button
+                          className="btn-secondary !p-1 text-xs"
+                          onClick={() => setEditandoEmpenhoItemId(null)}
+                          title="Cancelar"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        className="group/emp flex items-center justify-end gap-1.5 cursor-pointer hover:text-amber-300"
+                        onClick={() => iniciarEdicaoEmpenho(item)}
+                        title="Clique para editar a quantidade empenhada deste item"
+                      >
+                        <span className={cn(Number(item.quantidade_empenhada) > 0 ? 'font-semibold text-amber-300' : 'text-surface-300')}>
+                          {Number(item.quantidade_empenhada).toLocaleString('pt-BR')}
+                        </span>
+                        <Pencil size={11} className="opacity-0 group-hover/emp:opacity-100 text-surface-400 hover:text-surface-200 transition-opacity" />
+                      </div>
+                    )}
+                  </td>
                   <td className={cn('text-right text-xs font-semibold',
                     item.saldo_empenho <= 0 ? 'text-red-400' :
                     item.percentual_saldo < 10 ? 'text-amber-400' : 'text-emerald-400'
@@ -388,9 +734,28 @@ export default function PregaoDetalhes() {
                   <td className="text-right text-xs">{formatCurrency(Number(item.valor_unitario))}</td>
                   <td className="font-mono text-xs text-surface-400">
                     <div className="flex items-center gap-2 group/master">
-                      <span className={item.cd_comp_master ? 'text-primary-300 font-bold' : 'text-surface-500'}>
-                        {item.cd_comp_master ?? '—'}
-                      </span>
+                      {item.cd_comp_master && item.produto ? (
+                        <ItemDescTooltip
+                          titulo={
+                            <span className="text-primary-300 font-bold">
+                              {item.cd_comp_master}
+                            </span>
+                          }
+                          descricaoCompleta={
+                            <div className="flex flex-col gap-1 font-sans">
+                              <span className="font-bold text-surface-50">MASTER {item.cd_comp_master}</span>
+                              <span className="text-surface-200">{item.produto.nomenclatura}</span>
+                              <span className="text-[10px] text-surface-400 mt-1 font-mono">
+                                PN: {item.produto.pn || 'N/A'} {item.produto.mpn ? `/ MPN: ${item.produto.mpn}` : ''}
+                              </span>
+                            </div>
+                          }
+                        />
+                      ) : (
+                        <span className={item.cd_comp_master ? 'text-primary-300 font-bold' : 'text-surface-500'}>
+                          {item.cd_comp_master ?? '—'}
+                        </span>
+                      )}
                       <button
                         onClick={() => { setSearchMaster(''); setItemEditandoMaster(item) }}
                         className="opacity-0 group-hover/master:opacity-100 text-surface-400 hover:text-primary-400 transition-opacity p-0.5"
@@ -399,6 +764,9 @@ export default function PregaoDetalhes() {
                         <Pencil size={12} />
                       </button>
                     </div>
+                  </td>
+                  <td className="font-mono text-xs text-surface-400">
+                    {item.cm || item.produto?.cm || '—'}
                   </td>
                   <td className="text-center">
                     {item.status_pncp && item.status_pncp !== 'Homologado' ? (

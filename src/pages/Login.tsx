@@ -46,11 +46,11 @@ export default function Login() {
         <div className="bg-surface-800/80 backdrop-blur-xl border border-surface-600/40 rounded-2xl shadow-2xl shadow-black/40 p-8">
           {/* Logo e título */}
           <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-lg shadow-primary-500/30 mb-4">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-600 via-primary-700 to-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/20 mb-4">
               <Box size={28} className="text-white" />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-tight">GERSUP</h1>
-            <p className="text-sm text-surface-400 mt-1">Gestão de Suprimento</p>
+            <p className="text-sm text-amber-400/90 font-medium mt-1">Gestão de Suprimento</p>
           </div>
 
           {/* Formulário */}

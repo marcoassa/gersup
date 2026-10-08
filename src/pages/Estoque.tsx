@@ -180,9 +180,9 @@ export default function Estoque() {
 
       {/* Tabela */}
       <div className="card p-0 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[calc(100vh-16rem)] custom-scrollbar">
           <table className="w-full text-sm border-collapse">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
               <tr>
                 {['CD_COMP', 'Nomenclatura', 'PN', 'ND/SI', 'Liberado', 'Reservado', 'Total', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-surface-300 uppercase tracking-wider border-b border-surface-600/60 bg-surface-800/60 whitespace-nowrap">

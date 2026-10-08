@@ -247,9 +247,9 @@ export default function Fornecimentos() {
       {error && <ErrorCard message={error} onRetry={load} />}
 
       {/* Tabela */}
-      <div className="card p-0 overflow-x-auto">
+      <div className="card p-0 overflow-auto max-h-[calc(100vh-16rem)] custom-scrollbar">
         <table className="w-full text-sm border-collapse">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
             <tr className="bg-surface-800/60">
               <th className="px-4 py-3 text-left text-xs font-semibold text-surface-300 uppercase tracking-wider border-b border-surface-600/60">
                 Componente MASTER

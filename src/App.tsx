@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, GanttChartSquare, Package, Warehouse,
-  History, ShoppingCart, Calendar, ClipboardList, Upload, X, ChevronRight, Box, Settings, Banknote, LogOut
+  History, ShoppingCart, Calendar, ClipboardList, Upload, X, ChevronRight, Box, Settings, Banknote, LogOut, Building2
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -20,6 +20,7 @@ import Compras from '@/pages/Compras'
 import Planejamento from '@/pages/Planejamento'
 import Produtos from '@/pages/Produtos'
 import Pedidos from '@/pages/Pedidos'
+import Fornecedores from '@/pages/Fornecedores'
 import NotasCredito from '@/pages/NotasCredito'
 import ImportarDados from '@/pages/ImportarDados'
 import Configuracoes from '@/pages/Configuracoes'
@@ -27,14 +28,15 @@ import Configuracoes from '@/pages/Configuracoes'
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { to: '/pregoes', label: 'Pregões', icon: FileText },
+  { to: '/fornecedores', label: 'Fornecedores', icon: Building2 },
   { to: '/diagonal', label: 'Diagonal', icon: GanttChartSquare },
   { to: '/compras', label: 'Compras', icon: ShoppingCart },
+  { to: '/pedidos', label: 'Pedidos', icon: ClipboardList },
   { to: '/planejamento', label: 'Planejamento', icon: Calendar },
   { to: '/produtos', label: 'Produtos', icon: Package },
   { to: '/estoque', label: 'Estoque', icon: Warehouse },
   { to: '/fornecimentos', label: 'Fornecimentos', icon: History },
   { to: '/notas-credito', label: 'Notas de Crédito', icon: Banknote },
-  { to: '/pedidos', label: 'Pedidos de Empenho', icon: ClipboardList },
   { to: '/importar-dados', label: 'Importar Dados', icon: Upload },
   { to: '/configuracoes', label: 'Configurações', icon: Settings },
 ]
@@ -48,18 +50,18 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
     )}>
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-surface-600/40">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/20 shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-600 to-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
           <Box size={18} className="text-white" />
         </div>
         {!collapsed && (
           <div className="overflow-hidden">
-            <p className="text-sm font-bold text-white leading-tight">GERSUP</p>
-            <p className="text-[10px] text-surface-400 leading-tight">Gestão de Suprimento</p>
+            <p className="text-sm font-bold text-white tracking-wider leading-tight">GERSUP</p>
+            <p className="text-[10px] text-amber-400/90 font-medium leading-tight">Gestão de Suprimento</p>
           </div>
         )}
         <button
           onClick={onToggle}
-          className="ml-auto text-surface-400 hover:text-surface-100 transition-colors"
+          className="ml-auto text-surface-400 hover:text-white transition-colors"
         >
           {collapsed ? <ChevronRight size={16} /> : <X size={16} />}
         </button>
@@ -75,8 +77,8 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             className={({ isActive }) => cn(
               'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150',
               isActive
-                ? 'bg-primary-600/20 text-primary-300 font-medium'
-                : 'text-surface-300 hover:text-surface-50 hover:bg-surface-700'
+                ? 'bg-primary-700/40 text-amber-300 font-semibold border-l-2 border-amber-400 shadow-sm shadow-black/20'
+                : 'text-surface-300 hover:text-white hover:bg-surface-700/60'
             )}
             title={collapsed ? label : undefined}
           >
@@ -89,7 +91,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       {/* Footer */}
       {!collapsed && (
         <div className="px-4 py-3 border-t border-surface-600/40">
-          <p className="text-[10px] text-surface-300">Mercado Nacional • v1.0</p>
+          <p className="text-[10px] text-surface-400">Mercado Nacional • v1.0</p>
         </div>
       )}
     </aside>
@@ -120,14 +122,14 @@ function Header() {
 
   return (
     <header className="h-14 flex items-center gap-4 px-6 bg-surface-800/80 border-b border-surface-600/40 backdrop-blur-sm sticky top-0 z-20">
-      <h1 className="text-sm font-semibold text-surface-50">{current?.label ?? 'GERSUP'}</h1>
+      <h1 className="text-sm font-semibold text-white">{current?.label ?? 'GERSUP'}</h1>
       <div className="ml-auto flex items-center gap-3">
         {/* Avatar com e-mail */}
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-primary-700 flex items-center justify-center">
-            <span className="text-xs font-bold text-white">{initials}</span>
+          <div className="w-7 h-7 rounded-full bg-primary-700 border border-amber-400/60 flex items-center justify-center shadow-sm">
+            <span className="text-xs font-bold text-amber-300">{initials}</span>
           </div>
-          <span className="text-xs text-surface-300 hidden sm:block max-w-[160px] truncate">
+          <span className="text-xs text-surface-200 hidden sm:block max-w-[160px] truncate font-medium">
             {user?.email ?? 'Gerente de Suprimento'}
           </span>
         </div>
@@ -186,6 +188,7 @@ function AppShell() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/pregoes" element={<Pregoes />} />
               <Route path="/pregoes/:id" element={<PregaoDetalhes />} />
+              <Route path="/fornecedores" element={<Fornecedores />} />
               <Route path="/diagonal" element={<Diagonal />} />
               <Route path="/estoque" element={<Estoque />} />
               <Route path="/fornecimentos" element={<Fornecimentos />} />

@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, TrendingDown, CheckCircle, FileText, Package, Clock } from 'lucide-react'
+import { AlertTriangle, Banknote, CheckCircle, FileText, Package, Clock } from 'lucide-react'
 import { useQuery } from '@/hooks/useQuery'
+import { useNotasCreditoStore } from '@/hooks/useNotasCreditoStore'
 import { getPregoes, getEstoque, getFornecimentos, getProdutos } from '@/lib/api'
 import {
   enrichPregao, formatCurrency, formatDate, formatPercent, safeNum,
@@ -142,13 +143,26 @@ export default function Dashboard() {
   const { data: estoques } = useQuery(getEstoque)
   const { data: fornecimentos } = useQuery(getFornecimentos)
 
+  const { notas, saldoPorNC, fetched: fetchedNC, fetchNotas } = useNotasCreditoStore()
+
+  useEffect(() => {
+    if (!fetchedNC) fetchNotas()
+  }, [fetchedNC, fetchNotas])
+
   const cards = useMemo(() => (pregoes ?? []).map(enrichPregao), [pregoes])
+  const cardsVigentes = useMemo(() => cards.filter(c => c.status !== 'VENCIDO'), [cards])
   const masters = useMemo(() => (produtos ?? []).filter(p => p.pos_familia === 'MASTER'), [produtos])
 
   const ativos = cards.filter(c => c.status === 'ATIVO').length
   const aVencer = cards.filter(c => c.status === 'A_VENCER').length
   const vencidos = cards.filter(c => c.status === 'VENCIDO').length
-  const valorTotal = cards.filter(c => c.status !== 'VENCIDO').reduce((s, c) => s + c.valor_total, 0)
+
+  // Valor em carteira = somatório dos valores disponíveis para empenho das NCs ativas
+  const valorDisponivelNCs = useMemo(() => {
+    return notas
+      .filter(nc => nc.status !== 'ENCERRADA')
+      .reduce((s, nc) => s + (saldoPorNC[nc.id] ?? Number(nc.valor)), 0)
+  }, [notas, saldoPorNC])
 
   if (loadingP) return <LoadingSpinner text="Carregando pregões..." />
   if (errorP) return <ErrorCard message={errorP} onRetry={refetch} />
@@ -157,7 +171,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="stat-card">
+        <div className="stat-card cursor-pointer hover:border-primary-500/40 transition-colors" onClick={() => navigate('/pregoes')}>
           <div className="flex items-center gap-2 mb-1">
             <FileText size={14} className="text-primary-400" />
             <span className="stat-label">Pregões Ativos</span>
@@ -165,15 +179,15 @@ export default function Dashboard() {
           <span className="stat-value text-emerald-400">{ativos}</span>
           <span className="stat-sub">{aVencer} a vencer • {vencidos} vencidos</span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card cursor-pointer hover:border-emerald-500/40 transition-colors" onClick={() => navigate('/notas-credito')}>
           <div className="flex items-center gap-2 mb-1">
-            <TrendingDown size={14} className="text-primary-400" />
+            <Banknote size={14} className="text-emerald-400" />
             <span className="stat-label">Valor em Carteira</span>
           </div>
-          <span className="stat-value text-sm">{formatCurrency(valorTotal)}</span>
-          <span className="stat-sub">Pregões não vencidos</span>
+          <span className="stat-value text-sm text-emerald-400">{formatCurrency(valorDisponivelNCs)}</span>
+          <span className="stat-sub">Disponível para empenho (NCs)</span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card cursor-pointer hover:border-primary-500/40 transition-colors" onClick={() => navigate('/produtos')}>
           <div className="flex items-center gap-2 mb-1">
             <Package size={14} className="text-primary-400" />
             <span className="stat-label">Produtos MASTER</span>
@@ -181,7 +195,7 @@ export default function Dashboard() {
           <span className="stat-value">{masters.length}</span>
           <span className="stat-sub">catalogados no sistema</span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card cursor-pointer hover:border-amber-500/40 transition-colors" onClick={() => navigate('/pregoes')}>
           <div className="flex items-center gap-2 mb-1">
             <Clock size={14} className="text-amber-400" />
             <span className="stat-label">A Vencer (60 dias)</span>
@@ -192,14 +206,25 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Cards de pregões */}
+        {/* Cards de pregões vigentes */}
         <div className="xl:col-span-2 space-y-4">
-          <h2 className="text-sm font-semibold text-surface-200">Pregões Vigentes</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {cards.map(card => (
-              <PregaoCardUI key={card.id} card={card} onClick={() => navigate(`/pregoes/${card.id}`)} />
-            ))}
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-surface-200">Pregões Vigentes</h2>
+            <span className="text-xs text-surface-400">
+              {cardsVigentes.length} {cardsVigentes.length === 1 ? 'pregão' : 'pregões'}
+            </span>
           </div>
+          {cardsVigentes.length === 0 ? (
+            <div className="card text-center py-10 text-surface-400 text-xs">
+              Nenhum pregão vigente no momento.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {cardsVigentes.map(card => (
+                <PregaoCardUI key={card.id} card={card} onClick={() => navigate(`/pregoes/${card.id}`)} />
+              ))}
+            </div>
+          )}
         </div>
         {/* Alertas */}
         <div className="space-y-4">

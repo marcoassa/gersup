@@ -4,20 +4,27 @@
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║  FLUXO CORRETO (validado com a API real):                               ║
  * ║                                                                          ║
- * ║  1. /modulo-contratacoes/1.1_consultarContratacoes_PNCP_14133_Id       ║
- * ║     → Obtém unidadeOrgaoCodigoUnidade (UASG) e anoCompraPncp           ║
+ * ║  1. pncp.gov.br /orgaos/{cnpj}/compras/{ano}/{num}/atas  [PRIMÁRIO]    ║
+ * ║     → Busca direta das ATAs vinculadas à compra (sem delay de sync)     ║
+ * ║     → Retorna: numeroAtaRegistroPreco, sequencialAta,                   ║
+ * ║       unidadeOrgao, dataVigencia, numeroControlePNCP (da ata)           ║
  * ║                                                                          ║
- * ║  2. /modulo-arp/1_consultarARP                                          ║
+ * ║  1b. /modulo-arp/1_consultarARP  [FALLBACK]                            ║
  * ║     → Filtra por codigoUnidadeGerenciadora + janela de datas (365 dias) ║
- * ║     → Filtra resultado local por numeroControlePncpCompra = ID informado║
- * ║     → Retorna a ARP com: numeroAtaRegistroPreco,                        ║
- * ║       codigoUnidadeGerenciadora, numeroControlePncpAta, etc.            ║
+ * ║     → Filtra resultado local por numeroControlePncpCompra = ID          ║
+ * ║     → Usado apenas se o endpoint PNCP falhar                           ║
  * ║                                                                          ║
- * ║  3. /modulo-arp/2_consultarARPItem (ou 2.1_consultarARPItem_Id)        ║
- * ║     → Busca itens da ARP pelo numero da ata ou pelo ID PNCP da ata     ║
+ * ║  2. /modulo-arp/2.1_consultarARPItem_Id  (ou 2_consultarARPItem)       ║
+ * ║     → Busca itens da ARP pelo ID PNCP da ata                           ║
+ * ║     → ATENÇÃO: alguns pregões PDM retornam numeroItem=null              ║
+ * ║       Nesses casos, os itens PNCP da compra são usados como fonte       ║
  * ║                                                                          ║
- * ║  4. /modulo-arp/4_consultarEmpenhosSaldoItem                           ║
+ * ║  3. /modulo-arp/4_consultarEmpenhosSaldoItem                           ║
  * ║     → Saldo e empenhos por item (consolidação por numeroItem)           ║
+ * ║                                                                          ║
+ * ║  4. pncp.gov.br /orgaos/{cnpj}/compras/{ano}/{num}/itens               ║
+ * ║     → Itens da compra com numeroItem correto, status e descrição        ║
+ * ║     → Usado para completar itens sem ATA ou corrigir numeroItem null    ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -46,10 +53,12 @@ interface ContratacaoPncpDTO {
   orgaoEntidadeCnpj?: string
   objetoCompra?: string
   srp?: boolean
+  /** Número administrativo da compra no órgão (ex: "90016"), distinto do sequencial PNCP */
+  numeroCompra?: string
   [key: string]: unknown
 }
 
-/** VwFtArpDTO — retorno de /modulo-arp/1_consultarARP */
+/** VwFtArpDTO — retorno de /modulo-arp/1_consultarARP ou pncp.gov.br/atas */
 export interface ArpDTO {
   numeroAtaRegistroPreco: string
   codigoUnidadeGerenciadora: string
@@ -65,6 +74,8 @@ export interface ArpDTO {
   numeroControlePncpAta?: string
   numeroControlePncpCompra?: string
   idCompra?: string
+  /** Sequencial da ATA dentro da compra (disponível via endpoint PNCP /atas) */
+  sequencialAta?: number
   [key: string]: unknown
 }
 
@@ -225,7 +236,7 @@ async function buscarContratacao(idPncpCompra: string): Promise<ContratacaoPncpD
   if (!parsed) return null
   
   // Utiliza a API de consulta do PNCP diretamente (suporta CORS, sem necessidade de proxy)
-  const url = `https://pncp.gov.br/api/consulta/v1/orgaos/${parsed.cnpj}/compras/${parsed.ano}/${parsed.sequencial}`
+  const url = `https://pncp.gov.br/api/consulta/v1/orgaos/${parsed.cnpj}/compras/${parsed.ano}/${parsed.numero}`
   try {
     const raw = await fetchJson<any>(url)
     if (!raw || !raw.unidadeOrgao) return null
@@ -240,12 +251,86 @@ async function buscarContratacao(idPncpCompra: string): Promise<ContratacaoPncpD
       unidadeOrgaoNomeUnidade: raw.unidadeOrgao.nomeUnidade,
       orgaoEntidadeCnpj: raw.orgaoEntidade?.cnpj,
       objetoCompra: raw.objetoCompra,
-      srp: raw.srp
+      srp: raw.srp,
+      // Número administrativo interno do órgão (ex: "90016"), diferente do sequencial PNCP
+      numeroCompra: toStr(raw.numeroCompra || ''),
     }
   } catch (err) {
     console.warn('[ComprasGov] Falha ao buscar contratação no PNCP:', err)
     return null
   }
+}
+
+// ─── Etapa 2a: Buscar ATAs diretamente via endpoint PNCP v1 /atas ─────────────
+
+/**
+ * Estratégia PRIMÁRIA para localizar ATAs vinculadas a uma compra.
+ *
+ * Usa o endpoint público pncp.gov.br/api/pncp/v1/orgaos/{cnpj}/compras/{ano}/{num}/atas
+ * que retorna apenas as ATAs daquela compra, sem necessidade de busca por UASG+data.
+ * É mais confiável pois não depende da sincronização do dadosabertos.compras.gov.br.
+ */
+async function buscarAtasViaPncpEndpoint(
+  cnpj: string,
+  ano: string,
+  numero: string,
+  idPncpCompraRaw: string,
+  /** Número administrativo da compra no órgão (ex: "90016"). Se vazio, usa o sequencial PNCP. */
+  numeroCompraAdm: string = ''
+): Promise<ArpDTO[]> {
+  let pagina = 1
+  const todas: any[] = []
+
+  while (true) {
+    const url = `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${numero}/atas?pagina=${pagina}&tamanhoPagina=500`
+    let raw: any
+    try {
+      raw = await fetchJson<any>(url)
+    } catch (err) {
+      if (pagina === 1) throw err
+      break
+    }
+
+    const items: any[] = Array.isArray(raw) ? raw : (raw?.data ?? raw?.resultado ?? [])
+    todas.push(...items)
+
+    const restantes = toNum(raw?.paginasRestantes ?? 0)
+    if (restantes <= 0 || items.length === 0) break
+    pagina++
+  }
+
+  if (todas.length === 0) return []
+
+  // Usa o número administrativo real (ex: "90016") se disponível;
+  // senão usa o sequencial PNCP (ex: "010695") como fallback.
+  const numCompraFinal = numeroCompraAdm || numero
+
+  return todas
+    .filter((ata: any) => !ata.cancelado)
+    .map((ata: any): ArpDTO => {
+      // O campo numeroAtaRegistroPreco no PNCP vem sem o ano (ex: "00345").
+      // Montamos "00345/2026" para manter compatibilidade com o dadosabertos.
+      const numAtaBase = toStr(ata.numeroAtaRegistroPreco)
+      const anoAta = ata.anoAta ?? parseInt(ano)
+      const numeroAtaCompleto = numAtaBase.includes('/') ? numAtaBase : `${numAtaBase}/${anoAta}`
+
+      return {
+        numeroAtaRegistroPreco: numeroAtaCompleto,
+        codigoUnidadeGerenciadora: toStr(ata.unidadeOrgao?.codigoUnidade ?? ata.codigoUnidade ?? ''),
+        nomeUnidadeGerenciadora: toStr(ata.unidadeOrgao?.nomeUnidade ?? ata.nomeUnidade ?? ''),
+        numeroCompra: numCompraFinal,
+        anoCompra: anoAta,
+        dataVigenciaInicial: toStr(ata.dataVigenciaInicio ?? ata.dataVigenciaInicial ?? ''),
+        dataVigenciaFinal: toStr(ata.dataVigenciaFim ?? ata.dataVigenciaFinal ?? ''),
+        statusAta: 'Ata de Registro de Preços',
+        objeto: toStr(ata.objetoCompra ?? ata.objeto ?? ''),
+        valorTotal: toNum(ata.valorTotal ?? 0),
+        numeroControlePncpAta: toStr(ata.numeroControlePNCP ?? ata.numeroControlePncpAta ?? ''),
+        numeroControlePncpCompra: idPncpCompraRaw,
+        idCompra: toStr(ata.idCompra ?? ''),
+        sequencialAta: toNum(ata.sequencialAta ?? 0),
+      }
+    })
 }
 
 // ─── Etapa 2: Buscar ARPs da UASG e filtrar pela compra ───────────────────────
@@ -337,16 +422,41 @@ async function buscarArpsPorUasgEAno(
 /**
  * Retorna TODAS as ATAs vinculadas a este ID PNCP de compra.
  * Uma compra SRP pode gerar múltiplas ATAs (uma por fornecedor vencedor).
+ *
+ * Estratégia 1 (primária): endpoint PNCP v1 /atas — direto, sem delay de sync.
+ * Estratégia 2 (fallback): dadosabertos /modulo-arp/1_consultarARP por UASG+data.
  */
 export async function buscarTodasArpsPorIdPncp(idPncpCompra: string): Promise<ArpDTO[]> {
   const parsed = parsePncpId(idPncpCompra)
   if (!parsed) return []
 
-  // 1. Obtém a UASG e o ano da compra a partir da contratação
+  // Busca os dados da contratação SEMPRE (PNCP direto), inclusive o numeroCompra
+  // administrativo real (ex: "90016") que o órgão usa internamente.
+  // Isso garante que o numero_pregao seja "90016/2026" e não "010695/2026".
   const contratacao = await buscarContratacao(idPncpCompra)
+  const numeroCompraAdm = toStr(contratacao?.numeroCompra || '')
   const uasg = toStr(contratacao?.unidadeOrgaoCodigoUnidade) || ''
-  const ano = toNum(contratacao?.anoCompraPncp) || parseInt(parsed.ano)
+  const anoContratacao = toNum(contratacao?.anoCompraPncp) || parseInt(parsed.ano)
 
+  // ── Estratégia 1: Endpoint PNCP /atas (mais rápido, sem delay de indexação) ──
+  try {
+    const atasDiretas = await buscarAtasViaPncpEndpoint(parsed.cnpj, parsed.ano, parsed.numero, parsed.raw, numeroCompraAdm)
+    if (atasDiretas.length > 0) {
+      console.info(`[ComprasGov] PNCP /atas: ${atasDiretas.length} ATA(s) encontrada(s) para ${idPncpCompra} (nº ${numeroCompraAdm || parsed.numero})`)
+      const vistas = new Set<string>()
+      return atasDiretas.filter(a => {
+        const chave = toStr(a.numeroControlePncpAta || a.numeroAtaRegistroPreco)
+        if (vistas.has(chave)) return false
+        vistas.add(chave)
+        return true
+      })
+    }
+    console.info('[ComprasGov] PNCP /atas: nenhuma ATA encontrada, tentando fallback dadosabertos...')
+  } catch (err) {
+    console.warn('[ComprasGov] PNCP /atas falhou, tentando fallback dadosabertos:', err)
+  }
+
+  // ── Estratégia 2 (fallback): busca por UASG + faixa de datas no dadosabertos ─
   if (!uasg) {
     throw new Error(
       'Não foi possível obter dados da contratação no PNCP (a API pode estar instável). ' +
@@ -354,8 +464,7 @@ export async function buscarTodasArpsPorIdPncp(idPncpCompra: string): Promise<Ar
     )
   }
 
-  // 2. Buscar ARPs no ano da compra e também nos anos adjacentes
-  const anosParaBuscar = [ano, ano + 1]
+  const anosParaBuscar = [anoContratacao, anoContratacao + 1]
   const todas: ArpDTO[] = []
 
   for (const a of anosParaBuscar) {
@@ -486,6 +595,8 @@ export async function buscarEmpenhosSaldo(
 
 // ─── Orquestrador principal ───────────────────────────────────────────────────
 
+// ─── Orquestrador principal ───────────────────────────────────────────────────
+
 export async function importarOuAtualizarPregaoPorPncp(idRaw: string): Promise<DadosPregaoPncp> {
   // Validar formato
   const parsed = parsePncpId(idRaw)
@@ -558,6 +669,12 @@ export async function importarOuAtualizarPregaoPorPncp(idRaw: string): Promise<D
 
     for (const item of itens) {
       const numItem = toNum(item.numeroItem)
+
+      // Alguns pregões (ex: estrutura PDM) retornam numeroItem=null no módulo-arp.
+      // Nesses casos, saltamos a construção pelo módulo-arp e deixamos os itens PNCP
+      // (etapa 5) como fonte primária com números sequenciais corretos.
+      if (numItem === 0) continue
+
       if (itensPorNumero.has(numItem)) continue // já mapeado por outra ATA
 
       const emp = empenhos.get(numItem)
@@ -590,35 +707,44 @@ export async function importarOuAtualizarPregaoPorPncp(idRaw: string): Promise<D
         data_vigencia_inicial: normalizeDate(item.dataVigenciaInicial) ?? ataVigIni,
         data_vigencia_final: normalizeDate(item.dataVigenciaFinal) ?? ataVigFim,
         data_ultima_atualizacao_api: agora,
-        status_pncp: 'Homologado', // Será atualizado depois com os dados reais do PNCP se houver
+        status_pncp: 'Homologado',
       })
     }
   }
 
   // ── Etapa 5: Buscar a lista COMPLETA de itens do PNCP e mesclar ──────────
+  const todosItensArpTemNumero = itensPorNumero.size > 0
   try {
     const pncpItens = await buscarTodosItensPncp(parsed.cnpj, parsed.ano, parsed.numero)
     for (const pncp of pncpItens) {
       const existente = itensPorNumero.get(pncp.numeroItem)
       if (existente) {
-        // Atualiza o status se achou o item
         existente.status_pncp = pncp.situacaoCompraItemNome ?? existente.status_pncp
       } else {
-        // Item deserto, fracassado, cancelado ou não gerou ata
+        const eHomologado = ['Homologado', 'Adjudicado'].includes(pncp.situacaoCompraItemNome ?? '')
+        const semAtaRealmenteVazia = !todosItensArpTemNumero && eHomologado
+        const qtdLicitada = toNum(pncp.quantidade)
+        const valorUnit = toNum(pncp.valorUnitarioEstimado)
+        const saldoItem = eHomologado ? qtdLicitada : 0
+
+        if (eHomologado) {
+          valorTotal += qtdLicitada * valorUnit
+        }
+
         itensPorNumero.set(pncp.numeroItem, {
-          id_pncp_ata: '', // Não tem ATA
-          numero_ata: '',
-          uasg_gerenciadora: arpPrincipal.codigoUnidadeGerenciadora,
+          id_pncp_ata: semAtaRealmenteVazia ? toStr(arpPrincipal.numeroControlePncpAta ?? '') : '',
+          numero_ata: semAtaRealmenteVazia ? toStr(arpPrincipal.numeroAtaRegistroPreco) : '',
+          uasg_gerenciadora: toStr(arpPrincipal.codigoUnidadeGerenciadora),
           numero_item: pncp.numeroItem,
           descricao: pncp.descricao,
           unidade: pncp.unidadeMedida || 'UN',
-          valor_unitario: toNum(pncp.valorUnitarioEstimado),
-          quantidade_licitada: toNum(pncp.quantidade),
+          valor_unitario: valorUnit,
+          quantidade_licitada: qtdLicitada,
           quantidade_empenhada: 0,
-          saldo_restante: 0,
-          saldo_empenho: 0,
-          data_vigencia_inicial: null,
-          data_vigencia_final: null,
+          saldo_restante: saldoItem,
+          saldo_empenho: saldoItem,
+          data_vigencia_inicial: semAtaRealmenteVazia ? normalizeDate(arpPrincipal.dataVigenciaInicial) : null,
+          data_vigencia_final: semAtaRealmenteVazia ? normalizeDate(arpPrincipal.dataVigenciaFinal) : null,
           data_ultima_atualizacao_api: agora,
           status_pncp: pncp.situacaoCompraItemNome || 'Cancelado/Deserto',
         })
@@ -663,4 +789,34 @@ export async function importarOuAtualizarPregaoPorPncp(idRaw: string): Promise<D
     itens,
     avisoSaldoIndisponivel,
   }
+}
+
+export async function buscarFornecedorVencedorItem(idCompra: string, numItem: number): Promise<{nome: string, cnpj: string} | null> {
+  const parsed = parsePncpId(idCompra)
+  if (!parsed) return null
+  
+  const url = `https://pncp.gov.br/api/pncp/v1/orgaos/${parsed.cnpj}/compras/${parsed.ano}/${parsed.numero}/itens/${numItem}/resultados`
+  
+  try {
+    const raw = await fetchJson<any[]>(url)
+    if (!raw || !Array.isArray(raw) || raw.length === 0) return null
+    
+    // Pegar o primeiro resultado não cancelado ou apenas o primeiro
+    const vencedor = raw.find(r => !r.dataCancelamento) || raw[0]
+    
+    if (vencedor && vencedor.nomeRazaoSocialFornecedor) {
+      // O CNPJ (niFornecedor) vem apenas com os números, formatar se necessário ou retornar bruto
+      let cnpj = toStr(vencedor.niFornecedor)
+      if (cnpj.length === 14) {
+        cnpj = `${cnpj.substring(0,2)}.${cnpj.substring(2,5)}.${cnpj.substring(5,8)}/${cnpj.substring(8,12)}-${cnpj.substring(12,14)}`
+      }
+      return {
+        nome: toStr(vencedor.nomeRazaoSocialFornecedor),
+        cnpj: cnpj
+      }
+    }
+  } catch (err) {
+    console.warn(`[ComprasGov] Sem resultado de fornecedor para o item ${numItem}:`, (err as Error).message)
+  }
+  return null
 }

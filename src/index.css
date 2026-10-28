@@ -1,3 +1,4 @@
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
@@ -142,4 +143,66 @@
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { @apply bg-surface-600 rounded-full; }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover { @apply bg-surface-500; }
+}
+
+
+/* Responsive order list: keep every field inside the available page width. */
+#root > .min-h-screen > .flex-1 { min-width: 0; }
+main > div:has(> div button[title="Gerar relatório consolidado dos pedidos do ano com gráficos e relação por Subitem"]) { min-width: 0; width: 100%; overflow-wrap: anywhere; }
+main > div:has(> div button[title="Gerar relatório consolidado dos pedidos do ano com gráficos e relação por Subitem"]) > .flex:first-child,
+main > div:has(> div button[title="Gerar relatório consolidado dos pedidos do ano com gráficos e relação por Subitem"]) > .flex:first-child > .flex { flex-wrap: wrap; gap: .75rem; }
+main > div:has(> div button[title="Gerar relatório consolidado dos pedidos do ano com gráficos e relação por Subitem"]) input { min-width: 0; }
+.card:has(> .flex > .w-14) { min-width: 0; container-type: inline-size; padding: .75rem; }
+.card:has(> .flex > .w-14) > .flex:first-child { flex-wrap: wrap; }
+.card:has(> .flex > .w-14) > .flex:first-child > div { min-width: 0; max-width: 100%; }
+.card:has(> .flex > .w-14) > .flex:first-child > .flex { flex-wrap: wrap; }
+.card:has(> .flex > .w-14) > .flex:first-child > .flex-1 {
+  flex: 1 1 100%; order: 1; margin-left: 0; margin-right: 0;
+}
+.card:has(> .flex > .w-14) .truncate {
+  white-space: normal; overflow: visible; text-overflow: clip;
+  overflow-wrap: anywhere; max-width: 100%;
+}
+.card:has(> .flex > .w-14) table { width: 100%; table-layout: fixed; }
+.card:has(> .flex > .w-14) th, .card:has(> .flex > .w-14) td {
+  white-space: normal; overflow-wrap: anywhere; vertical-align: top;
+  padding-left: .375rem; padding-right: .375rem;
+}
+.card:has(> .flex > .w-14) th { letter-spacing: normal; }
+.card:has(> .flex > .w-14) td > div { max-width: 100%; }
+.card:has(> .flex > .w-14) td:last-child > div { flex-wrap: wrap; }
+@container (max-width: 1050px) {
+  .card:has(> .flex > .w-14) table, .card:has(> .flex > .w-14) tbody, .card:has(> .flex > .w-14) tfoot { display: block; width: 100%; }
+  .card:has(> .flex > .w-14) thead { display: none; }
+  .card:has(> .flex > .w-14) tbody tr {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .5rem; padding: .75rem 0;
+  }
+  .card:has(> .flex > .w-14) tbody td { display: block; min-width: 0; max-width: none; text-align: left; }
+  .card:has(> .flex > .w-14) tbody td::before {
+    display: block; margin-bottom: .25rem; color: #94a3b8;
+    font: 600 10px/1.4 Inter, sans-serif;
+  }
+  .card:has(> .flex > .w-14) tbody td:nth-child(1)::before { content: "Comp. MASTER"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(2)::before { content: "Descrição (TR)"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(3)::before { content: "Descrição (Pregão)"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(4)::before { content: "PN / MPN"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(5)::before { content: "Pregão"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(6)::before { content: "Item"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(7)::before { content: "Vl. Unit."; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(8)::before { content: "Qtd"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(9)::before { content: "Vl. Total"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(10)::before { content: "CM"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(11)::before { content: "Empresa Ganhadora"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(12)::before { content: "CNPJ"; }
+  .card:has(> .flex > .w-14) tbody td:nth-child(13)::before { content: "Ações"; }
+  .card:has(> .flex > .w-14) tfoot tr { display: flex; flex-wrap: wrap; justify-content: flex-end; }
+  .card:has(> .flex > .w-14) tfoot td { display: block; }
+  .card:has(> .flex > .w-14) tfoot td:empty { display: none; }
+}
+@container (max-width: 600px) {
+  .card:has(> .flex > .w-14) tbody tr { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 360px) {
+  .card:has(> .flex > .w-14) tbody tr { grid-template-columns: minmax(0, 1fr); }
 }

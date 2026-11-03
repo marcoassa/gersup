@@ -4,8 +4,13 @@
 import pkg from 'pg'
 const { Client } = pkg
 
+const databaseUrl = process.env.DATABASE_URL
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL deve ser definida para executar este script.')
+}
+
 const client = new Client({
-  connectionString: 'postgresql://postgres:56BvwCaTqkfwUBA2@db.axuvwfkhauoizforekxi.supabase.co:5432/postgres',
+  connectionString: databaseUrl,
   ssl: { rejectUnauthorized: false },
 })
 
@@ -212,3 +217,4 @@ ok(`Janela temporal: ${forn.data_mais_antiga} → ${forn.data_mais_recente}`)
 console.log('')
 
 await client.end()
+

@@ -336,6 +336,23 @@ export interface NotaCredito {
 
 export type StatusPedidoCompra = 'RASCUNHO' | 'FINALIZADO' | 'ENTREGUE' | 'CANCELADO'
 
+/** Cada registro mantém o NUP do processo de aquisição, mesmo sem NE definida. */
+export interface EmpenhoSped {
+  numero?: string | null
+  ano?: number
+  ug?: string | null
+  nup?: string | null
+  processo_url?: string | null
+  documento_url?: string | null
+  requisicao?: string | null
+  status?: string | null
+  fonte_numero?: string | null
+  ressalvas?: string | null
+  conferido_em?: string | null
+  nota_anexada?: boolean
+  candidatos?: Array<{ numero?: string | null; ug?: string | null; fonte?: string | null }>
+}
+
 export interface ItemPedidoCompra {
   id: string
   pedido_id: string
@@ -356,6 +373,7 @@ export interface ItemPedidoCompra {
   valor_total: number
   fornecedor_nome: string | null
   fornecedor_cnpj: string | null
+  empenhos_sped?: EmpenhoSped[] | null
 }
 
 export interface PedidoCompra {

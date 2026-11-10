@@ -14,6 +14,8 @@ import { getPiFromSi, SI_NAMES } from '@/lib/ementario'
 import type { PedidoCompra, StatusPedidoCompra, NotaCredito, ItemPedidoCompra } from '@/types'
 import { EspelhoModal } from '@/components/EspelhoModal'
 import { RelatorioPedidosAnoModal } from '@/components/RelatorioPedidosAnoModal'
+import { EmpenhosSpedItem } from '@/components/EmpenhosSpedItem'
+import { textoBuscaEmpenhos } from '@/lib/empenhosSped'
 import ItemDescTooltip, { ResumoTRTooltipContent } from '@/components/ui/ItemDescTooltip'
 
 const STATUS_CONFIG: Record<StatusPedidoCompra, { label: string; className: string; icon: React.ReactNode }> = {
@@ -329,6 +331,7 @@ function itemMatchesBusca(item: ItemPedidoCompra, pregaoMap: PregaoMap, qTokens:
     cnpjClean,
     cnpjFormatted,
     item.cm || '',
+    textoBuscaEmpenhos(item),
   ]
 
   const normalizedCorpus = removerAcentos(rawParts.filter(Boolean).join(' '))
@@ -597,7 +600,7 @@ export default function Pedidos() {
         <input
           type="text"
           className="input flex-1 bg-transparent border-0 focus:ring-0 focus:outline-none text-xs text-surface-100 placeholder:text-surface-400"
-          placeholder="Buscar por Item, PN, MPN, Pregão, Comp. Master, SI, Descrição, Empresa Ganhadora, CNPJ..."
+          placeholder="Buscar por item, empenho, processo (NUP), pendente, PN, pregão, empresa, CNPJ..."
           value={busca}
           onChange={e => setBusca(e.target.value)}
         />
@@ -921,10 +924,13 @@ export default function Pedidos() {
                     </div>
                   )}
 
+                  <p className="px-4 py-2 text-[10px] text-surface-400 bg-surface-800/50">
+                    Rastreio SPED: número identificado não significa conteúdo da NE conferido. Consulte as fontes e ressalvas de cada item. Os links exigem acesso à rede interna.
+                  </p>
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 z-10 bg-surface-800 shadow-sm">
                       <tr className="bg-surface-700/40">
-                        {['Comp. MASTER','Descrição (TR)','Descrição (Pregão)','PN / MPN','Pregão','Item','Vl. Unit.','Qtd','Vl. Total','CM','Empresa Ganhadora','CNPJ',''].map(h => (
+                        {['Comp. MASTER','Descrição (TR)','Descrição (Pregão)','PN / MPN','Pregão','Item','Empenho / Processo SPED','Vl. Unit.','Qtd','Vl. Total','CM','Empresa Ganhadora','CNPJ',''].map(h => (
                           <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold text-surface-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
@@ -979,6 +985,7 @@ export default function Pedidos() {
                               })()}
                             </td>
                             <td className="px-3 py-2 text-right text-surface-300">{item.numero_item ?? '—'}</td>
+                            <td className="px-3 py-2 align-top"><EmpenhosSpedItem item={item} /></td>
                             <td className="px-3 py-2 text-right text-surface-200 font-mono">{formatCurrency(item.valor_unitario)}</td>
                             <td className="px-3 py-2 text-right text-surface-100 font-semibold">{Number(item.quantidade).toLocaleString('pt-BR')}</td>
                             <td className="px-3 py-2 text-right text-emerald-400 font-semibold">{formatCurrency(item.valor_total)}</td>
@@ -1016,7 +1023,7 @@ export default function Pedidos() {
                     </tbody>
                     <tfoot>
                       <tr className="bg-surface-700/30 border-t border-surface-600/30">
-                        <td colSpan={8} className="px-3 py-2 text-right text-xs font-semibold text-surface-300">
+                        <td colSpan={9} className="px-3 py-2 text-right text-xs font-semibold text-surface-300">
                           {temFiltroItens && !mostrarTodos ? 'Subtotal dos Itens Filtrados' : 'Total do Pedido'}
                         </td>
                         <td className="px-3 py-2 text-right text-sm font-bold text-emerald-400">

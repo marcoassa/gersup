@@ -16,6 +16,7 @@ import { EspelhoModal } from '@/components/EspelhoModal'
 import { RelatorioPedidosAnoModal } from '@/components/RelatorioPedidosAnoModal'
 import { EmpenhosSpedItem } from '@/components/EmpenhosSpedItem'
 import { textoBuscaEmpenhos } from '@/lib/empenhosSped'
+import { atualizarEntregaItemPedidoCompra, getPedidoCompraById } from '@/lib/api'
 import ItemDescTooltip, { ResumoTRTooltipContent } from '@/components/ui/ItemDescTooltip'
 
 const STATUS_CONFIG: Record<StatusPedidoCompra, { label: string; className: string; icon: React.ReactNode }> = {
@@ -499,12 +500,26 @@ export default function Pedidos() {
 
   async function handleStatus(id: string, status: StatusPedidoCompra) {
     setAtualizando(id + status)
+    try {
     const { error } = await atualizarStatusPedidoCompra(id, status)
-    setAtualizando(null)
     if (error) { alert(`Erro: ${error}`); return }
-    setPedidos(prev => prev.map(p => p.id === id ? { ...p, status } : p))
+    const result = await getPedidoCompraById(id)
+    if (result.error || !result.data) { alert('Status salvo. Recarregue a página para conferir os itens.'); return }
+    setPedidos(prev => prev.map(p => p.id === id ? result.data! : p))
     // Atualiza saldo das NCs globais se um pedido virar FINALIZADO ou ENTREGUE (ou deixar de ser)
     useNotasCreditoStore.getState().recalcStore()
+    } catch { alert('Não foi possível conferir a atualização. Recarregue a página antes de tentar novamente.') }
+    finally { setAtualizando(null) }
+  }
+
+  async function handleEntregaItem(pedidoId: string, item: ItemPedidoCompra) {
+    setAtualizando('entrega-' + item.id)
+    try {
+      const { data, error } = await atualizarEntregaItemPedidoCompra(pedidoId, item.id, !item.entregue_em)
+      if (error || !data) { alert(`Não foi possível conferir a entrega: ${error ?? 'pedido indisponível'}. Recarregue a página.`); return }
+      setPedidos(prev => prev.map(p => p.id === pedidoId ? data : p))
+    } catch { alert('Não foi possível conferir a entrega. Recarregue a página antes de tentar novamente.') }
+    finally { setAtualizando(null) }
   }
 
   async function handleDeletePedido(id: string) {
@@ -535,7 +550,7 @@ export default function Pedidos() {
     if (error) { alert(`Erro: ${error}`); return }
     setPedidos(prev => prev.map(p => {
       if (p.id !== pedidoId) return p
-      return { ...p, itens: novosItens, valor_total: novoTotal, status: 'RASCUNHO' }
+      return { ...p, itens: novosItens.map(i => ({ ...i, entregue_em: null })), valor_total: novoTotal, status: 'RASCUNHO' }
     }))
     useNotasCreditoStore.getState().recalcStore()
   }
@@ -800,6 +815,12 @@ export default function Pedidos() {
                 <span className={cn('shrink-0 flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border', cfg.className)}>
                   {cfg.icon} {cfg.label}
                 </span>
+                {(pedido.status === 'FINALIZADO' || pedido.status === 'ENTREGUE') && (
+                  <span className="text-[11px] text-emerald-300" aria-live="polite">
+                    {pedido.itens?.some(i => i.entregue_em) && pedido.status !== 'ENTREGUE' ? 'Entrega parcial · ' : ''}
+                    {pedido.itens?.filter(i => i.entregue_em).length ?? 0}/{pedido.itens?.length ?? 0} itens entregues
+                  </span>
+                )}
 
                 {/* Ações de status */}
                 {pedido.status === 'RASCUNHO' && !isDelPedido && (
@@ -837,13 +858,13 @@ export default function Pedidos() {
                       className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 border border-emerald-700/40 hover:bg-emerald-800/40 transition-colors disabled:opacity-50"
                       disabled={!!atualizando}
                       onClick={() => {
-                        if (confirm('Tem certeza que deseja marcar este pedido como entregue? Ele deixará de constar nos "Pedidos Pendentes".')) {
+                        if (confirm('Marcar todos os itens deste pedido como entregues? Eles deixarão de constar nos "Pedidos Pendentes".')) {
                           handleStatus(pedido.id, 'ENTREGUE')
                         }
                       }}
                     >
                       {atualizando === pedido.id + 'ENTREGUE' ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle2 size={10} />}
-                      Marcar Entregue
+                      Entregar todos os itens
                     </button>
                   </div>
                 )}
@@ -997,6 +1018,23 @@ export default function Pedidos() {
                             </td>
                             <td className="px-3 py-2 text-surface-400 font-mono text-[10px] whitespace-nowrap">{formatCNPJ(item.fornecedor_cnpj)}</td>
                             <td className="px-2 py-2 text-right">
+                              {(pedido.status === 'FINALIZADO' || pedido.status === 'ENTREGUE') && (
+                                <div className="flex flex-col items-start gap-1 mb-2">
+                                  <span className={item.entregue_em ? 'text-emerald-300 text-[10px]' : 'text-surface-400 text-[10px]'}>
+                                    {item.entregue_em ? `Entregue · ${formatDate(item.entregue_em)}` : 'Entrega pendente'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={!!atualizando}
+                                    onClick={() => handleEntregaItem(pedido.id, item)}
+                                    title={`Registrar ou desfazer a entrega das ${item.quantidade} unidades deste item`}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-700/40 bg-emerald-900/30 text-emerald-300 text-[11px] hover:bg-emerald-800/40 disabled:opacity-50"
+                                  >
+                                    {atualizando === 'entrega-' + item.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                                    {item.entregue_em ? 'Desfazer entrega' : 'Marcar entregue'}
+                                  </button>
+                                </div>
+                              )}
                               {!isDelItem ? (
                                 <button
                                   title="Excluir item"

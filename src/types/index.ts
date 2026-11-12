@@ -374,6 +374,7 @@ export interface ItemPedidoCompra {
   fornecedor_nome: string | null
   fornecedor_cnpj: string | null
   empenhos_sped?: EmpenhoSped[] | null
+  entregue_em?: string | null
 }
 
 export interface PedidoCompra {

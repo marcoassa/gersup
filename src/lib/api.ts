@@ -407,6 +407,7 @@ export async function getPedidosPendentes(): Promise<ApiResult<ItemPedidoPendent
       `)
       .neq('pedido.status', 'CANCELADO')
       .neq('pedido.status', 'ENTREGUE')
+      .is('entregue_em', null)
 
     if (error) throw new Error(error.message)
 
@@ -1252,6 +1253,16 @@ export async function criarPedidoCompra(
   return { data: pedido as PedidoCompra, error: null }
 }
 
+export async function atualizarEntregaItemPedidoCompra(
+  pedidoId: string, itemId: string, entregue: boolean
+): Promise<ApiResult<PedidoCompra>> {
+  const { error } = await supabase.rpc('marcar_entrega_item', {
+    p_pedido_id: pedidoId, p_item_id: itemId, p_entregue: entregue,
+  })
+  if (error) return { data: null, error: error.message }
+  return getPedidoCompraById(pedidoId)
+}
+
 export async function atualizarStatusPedidoCompra(
   id: string,
   status: StatusPedidoCompra
@@ -1428,7 +1439,7 @@ export async function recalcularSaldosPregaoDePedidos(pregaoIdFiltro?: string): 
     const { data: pedidosFinalizados, error: errPed } = await supabase
       .from('pedidos_compra')
       .select('id')
-      .eq('status', 'FINALIZADO')
+      .in('status', ['FINALIZADO', 'ENTREGUE'])
 
     if (errPed) return { data: null, error: errPed.message }
 

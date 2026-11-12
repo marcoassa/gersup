@@ -7,6 +7,7 @@ const identificados = new Set([
 ])
 
 const pendencias: Record<string, string> = {
+  ne_conferida_ressalva_tamanhos: 'NE conferida: ressalva de tamanhos',
   correlacao_com_divergencia_quantidade: 'Pendente: quantidade divergente',
   correlacao_com_divergencia_valor: 'Pendente: valor divergente',
   correlacao_pendente_divergencia_quantidade_e_cnpj: 'Pendente: quantidade e CNPJ',
@@ -24,6 +25,9 @@ export function getEmpenhosSped(item: Pick<ItemPedidoCompra, 'empenhos_sped'>): 
 }
 
 export function situacaoEmpenho(e: EmpenhoSped) {
+  if (e.numero && e.status === 'ne_conferida') {
+    return { pendente: false, label: 'NE conferida' }
+  }
   if (e.numero && identificados.has(e.status ?? '')) {
     return { pendente: false, label: 'Número identificado' }
   }

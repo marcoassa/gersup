@@ -336,8 +336,34 @@ export interface NotaCredito {
 
 export type StatusPedidoCompra = 'RASCUNHO' | 'FINALIZADO' | 'ENTREGUE' | 'CANCELADO'
 
+export interface RegistroRecebimentoControle {
+  line: number
+  nf: string
+  date: string
+  status: string
+  controle?: string | null
+  material?: string | null
+  obs?: string | null
+}
+
+export interface ConferenciaRecebimento {
+  status: 'integrado_estoque' | 'recebimento_pendente' | 'sem_discriminacao' | 'sem_registro'
+  status_controle: string
+  conferido_em: string
+  data_referencia_ne: string
+  origem_data_ne: string
+  prazo_entrega: string
+  regra_prazo: string
+  fonte_url: string
+  recebimentos: RegistroRecebimentoControle[]
+  recebimentos_sem_discriminacao: RegistroRecebimentoControle[]
+  ressalvas: string[]
+  validacao_vinculo_pendente: boolean
+}
+
 /** Cada registro mantém o NUP do processo de aquisição, mesmo sem NE definida. */
 export interface EmpenhoSped {
+  recebimento_controle?: ConferenciaRecebimento
   numero?: string | null
   ano?: number
   ug?: string | null

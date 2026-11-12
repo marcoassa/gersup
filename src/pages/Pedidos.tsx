@@ -15,6 +15,7 @@ import type { PedidoCompra, StatusPedidoCompra, NotaCredito, ItemPedidoCompra } 
 import { EspelhoModal } from '@/components/EspelhoModal'
 import { RelatorioPedidosAnoModal } from '@/components/RelatorioPedidosAnoModal'
 import { EmpenhosSpedItem } from '@/components/EmpenhosSpedItem'
+import { RecebimentoItem } from '@/components/RecebimentoItem'
 import { textoBuscaEmpenhos } from '@/lib/empenhosSped'
 import { atualizarEntregaItemPedidoCompra, getPedidoCompraById } from '@/lib/api'
 import ItemDescTooltip, { ResumoTRTooltipContent } from '@/components/ui/ItemDescTooltip'
@@ -1020,9 +1021,7 @@ export default function Pedidos() {
                             <td className="px-2 py-2 text-right">
                               {(pedido.status === 'FINALIZADO' || pedido.status === 'ENTREGUE') && (
                                 <div className="flex flex-col items-start gap-1 mb-2">
-                                  <span className={item.entregue_em ? 'text-emerald-300 text-[10px]' : 'text-surface-400 text-[10px]'}>
-                                    {item.entregue_em ? `Entregue · ${formatDate(item.entregue_em)}` : 'Entrega pendente'}
-                                  </span>
+                                  <RecebimentoItem item={item} />
                                   <button
                                     type="button"
                                     disabled={!!atualizando}

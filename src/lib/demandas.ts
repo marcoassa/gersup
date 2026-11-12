@@ -20,7 +20,7 @@ export async function salvarDemanda(d: Demanda): Promise<Demanda> {
 }
 export async function criarDemanda(descricao: string, requisitante: string, grupo: string, quantidade: string): Promise<Demanda> {
  const codigo = `DEM-N-${crypto.randomUUID()}`
- const { data, error } = await supabase.from('demandas').insert({ codigo, descricao, requisitante, grupo, quantidade_original: quantidade, proxima_acao: 'Validar especificação, quantidade e via de atendimento.', dados_origem: { origem: 'Cadastro manual', descricao, requisitante, quantidade } }).select('*').single()
+ const { data, error } = await supabase.from('demandas').insert({ codigo, descricao, requisitante, grupo, quantidade_original: quantidade, quantidade_atual: quantidade, proxima_acao: 'Validar especificação, quantidade e via de atendimento.', dados_origem: { origem: 'Cadastro manual', descricao, requisitante, quantidade } }).select('*').single()
  if (error) throw error
  return data as Demanda
 }
@@ -55,3 +55,11 @@ export async function buscarEstoque(termo: string): Promise<Registro[]> {
  if (error) throw error
  return data as Registro[]
 }
+
+export async function concluirRevisao(d: Demanda) {
+ const { data, error } = await supabase.from('demandas').update({ revisao: 'VALIDADA', pendencias: '' }).eq('id',d.id).eq('versao',d.versao).select('*').maybeSingle()
+ if (error) throw error
+ if (!data) throw new Error('Registro alterado em outra sessão. Atualize a lista.')
+ return data as Demanda
+}
+

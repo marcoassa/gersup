@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buscaDemanda, camposEditaveis, safeLink, validarAtendimento, validarDemanda } from '../src/lib/demandasModel'
+import { ESTADOS, vigenciaEfetiva, buscaDemanda, camposEditaveis, safeLink, validarAtendimento, validarDemanda } from '../src/lib/demandasModel'
 import type { Demanda, AtendimentoInput } from '../src/lib/demandasModel'
 
-const demanda = { id: 'example', codigo: 'DEM-0001', descricao: 'Material de revisão', requisitante: 'Oficina', quantidade_original: '1 kit', cm: '123', pn: '', mpn: '', grupo: 'Exemplo', situacao_fonte: 'Concluído segundo anotação', estado_demanda: 'A_VALIDAR', etapa_compra: 'A_VERIFICAR', entrega: 'A_VERIFICAR', evidencia_entrega: '', prioridade: 'A_DEFINIR', data_necessidade: null, responsavel: '', proxima_acao: '', observacoes: '', pendencias: '', revisao: 'PENDENTE', justificativa: '', dados_origem: { termos_busca_pedidos: '#0016', compras_candidatas: [{ empenhos: [{ numero: '2026NE001234' }] }] }, versao: 1, atualizado_em: '' } satisfies Demanda
+const demanda = { id: 'example', codigo: 'DEM-0001', descricao: 'Material de revisão', requisitante: 'Oficina', quantidade_original: '1 kit', cm: '123', pn: '', mpn: '', grupo: 'Exemplo', situacao_fonte: 'Concluído segundo anotação', estado_demanda: 'ABERTA', quantidade_atual: '1 kit', pregao_vigencia: 'A_VERIFICAR', pregoes_vigentes: [], etapa_compra: 'A_VERIFICAR', entrega: 'A_VERIFICAR', evidencia_entrega: '', prioridade: 'A_DEFINIR', data_necessidade: null, responsavel: '', proxima_acao: '', observacoes: '', pendencias: '', revisao: 'PENDENTE', justificativa: '', dados_origem: { termos_busca_pedidos: '#0016', compras_candidatas: [{ empenhos: [{ numero: '2026NE001234' }] }] }, versao: 1, atualizado_em: '' } satisfies Demanda
 test('conclusão anotada não altera entrega e referências são pesquisáveis', () => {
  assert.equal(validarDemanda(demanda), null)
  assert.equal(camposEditaveis(demanda).entrega, 'A_VERIFICAR')
@@ -19,7 +19,7 @@ test('edição preserva dados de origem, propriedade e versão', () => {
 test('confirmação de entrega e encerramento exigem evidência', () => {
  assert.match(validarDemanda({ ...demanda, entrega: 'ENTREGUE' })!, /evidência/)
  assert.match(validarDemanda({ ...demanda, entrega: 'NAO_ENTREGUE' })!, /evidência/)
- assert.match(validarDemanda({ ...demanda, estado_demanda: 'ATENDIDA' })!, /Justifique/)
+ assert.match(validarDemanda({ ...demanda, estado_demanda: 'ATENDIDA' })!, /evidência/)
  assert.match(validarDemanda({ ...demanda, revisao: 'VALIDADA', pendencias: 'CM divergente' })!, /pendências/)
 })
 const a: AtendimentoInput = { demanda_id: 'example', tipo: 'COMPRA', item_pedido_id: 'item', estoque_id: null, quantidade_prevista: 10, quantidade_recebida: 0, quantidade_destinada: 0, unidade: 'un', data_recebimento: null, evidencia: '', observacoes: '', ativo: true }
@@ -38,3 +38,16 @@ test('fontes rejeitam URLs executáveis e referências locais', () => {
  assert.equal(safeLink('file:///C:/private.pdf'), undefined)
  assert.equal(safeLink('https://drive.google.com/file/d/example/view'), 'https://drive.google.com/file/d/example/view')
 })
+
+test('seis situações e vigência expirada deixam de indicar pregão disponível', () => {
+ assert.equal(Object.keys(ESTADOS).length, 6)
+ const d: Demanda = { ...demanda, pregao_vigencia: 'SIM', pregoes_vigentes: [{ pregao: '90001/2026', item: '1', vigencia_final: '2027-01-01' }] }
+ assert.equal(vigenciaEfetiva(d, '2027-01-01'), 'SIM')
+ assert.equal(vigenciaEfetiva(d, '2027-01-02'), 'NAO')
+ assert.ok(validarDemanda({ ...d, pregoes_vigentes: [] }))
+ assert.ok(validarDemanda({ ...d, pregoes_vigentes: [{ pregao: '', item: '1', vigencia_final: '2099-01-01' }] }))
+ assert.ok(validarDemanda({ ...demanda, estado_demanda: 'PARCIALMENTE_ATENDIDA' }))
+ assert.equal(validarDemanda({ ...demanda, estado_demanda: 'ATENDIDA', justificativa: 'Entrega integral conferida' }), null)
+ assert.equal(camposEditaveis({ ...demanda, quantidade_atual: '2 kits' }).quantidade_atual, '2 kits')
+})
+

@@ -24,6 +24,7 @@ import Fornecedores from '@/pages/Fornecedores'
 import NotasCredito from '@/pages/NotasCredito'
 import ImportarDados from '@/pages/ImportarDados'
 import Configuracoes from '@/pages/Configuracoes'
+import Demandas from '@/pages/Demandas'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { to: '/diagonal', label: 'Diagonal', icon: GanttChartSquare },
   { to: '/compras', label: 'Compras', icon: ShoppingCart },
   { to: '/pedidos', label: 'Pedidos', icon: ClipboardList },
+  { to: '/demandas', label: 'Demandas', icon: ClipboardList },
   { to: '/planejamento', label: 'Planejamento', icon: Calendar },
   { to: '/produtos', label: 'Produtos', icon: Package },
   { to: '/estoque', label: 'Estoque', icon: Warehouse },
@@ -196,6 +198,7 @@ function AppShell() {
               <Route path="/planejamento" element={<Planejamento />} />
               <Route path="/produtos" element={<Produtos />} />
               <Route path="/pedidos" element={<Pedidos />} />
+              <Route path="/demandas" element={<Demandas />} />
               <Route path="/notas-credito" element={<NotasCredito />} />
               <Route path="/importar-dados" element={<ImportarDados />} />
               <Route path="/configuracoes" element={<Configuracoes />} />
@@ -210,7 +213,7 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AppShell />
       </BrowserRouter>
     </AuthProvider>

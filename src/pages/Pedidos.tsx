@@ -21,7 +21,7 @@ import { atualizarEntregaItemPedidoCompra, getPedidoCompraById } from '@/lib/api
 import ItemDescTooltip, { ResumoTRTooltipContent } from '@/components/ui/ItemDescTooltip'
 
 const STATUS_CONFIG: Record<StatusPedidoCompra, { label: string; className: string; icon: React.ReactNode }> = {
-  RASCUNHO:   { label: 'Rascunho',   className: 'bg-amber-900/50 text-amber-300 border-amber-700/40',       icon: <Clock size={10} /> },
+  RASCUNHO:   { label: 'Em preenchimento', className: 'bg-amber-900/50 text-amber-300 border-amber-700/40', icon: <Clock size={10} /> },
   FINALIZADO: { label: 'Finalizado', className: 'bg-primary-900/50 text-primary-300 border-primary-700/40', icon: <CheckCircle2 size={10} /> },
   ENTREGUE:   { label: 'Entregue',   className: 'bg-emerald-900/50 text-emerald-300 border-emerald-700/40', icon: <CheckCircle2 size={10} /> },
   CANCELADO:  { label: 'Cancelado',  className: 'bg-red-900/50 text-red-300 border-red-700/40',             icon: <XCircle size={10} /> },
@@ -655,6 +655,8 @@ export default function Pedidos() {
           const cfg = STATUS_CONFIG[pedido.status]
           const isOpen = expandidos.has(pedido.id)
           const qtdItens = pedido.itens?.length ?? 0
+          const entregaConcluida = pedido.status === 'ENTREGUE'
+            && qtdItens > 0 && pedido.itens!.every(item => !!item.entregue_em)
           const isDelPedido = confirmando === `pedido:${pedido.id}`
           const matchingItemIds = resultadoBuscaMap.get(pedido.id)?.matchingItemIds ?? new Set<string>()
           const temFiltroItens = busca.trim().length > 0 && matchingItemIds.size > 0
@@ -664,7 +666,12 @@ export default function Pedidos() {
             : (pedido.itens ?? [])
 
           return (
-            <div key={pedido.id} className={cn('card overflow-hidden transition-all duration-200', isOpen && 'border-primary-500/30')}>
+            <div key={pedido.id} className={cn(
+              'card overflow-hidden transition-all duration-200',
+              entregaConcluida
+                ? '!bg-emerald-950/40 !border-emerald-500/50 border-l-4'
+                : isOpen && 'border-primary-500/30',
+            )}>
 
               {/* ── Cabeçalho da leva ─────────────────────────────────────── */}
               <div className="flex items-center gap-3 px-4 py-3">
@@ -813,9 +820,11 @@ export default function Pedidos() {
                   )}
                 </div>
 
-                <span className={cn('shrink-0 flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border', cfg.className)}>
-                  {cfg.icon} {cfg.label}
-                </span>
+                {pedido.status !== 'FINALIZADO' && (
+                  <span className={cn('shrink-0 flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border', cfg.className)}>
+                    {cfg.icon} {cfg.label}
+                  </span>
+                )}
                 {(pedido.status === 'FINALIZADO' || pedido.status === 'ENTREGUE') && (
                   <span className="text-[11px] text-emerald-300" aria-live="polite">
                     {pedido.itens?.some(i => i.entregue_em) && pedido.status !== 'ENTREGUE' ? 'Entrega parcial · ' : ''}
@@ -1100,3 +1109,4 @@ export default function Pedidos() {
     </div>
   )
 }
+
